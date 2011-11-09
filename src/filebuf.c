@@ -273,18 +273,20 @@ int git_filebuf_commit(git_filebuf *file, mode_t mode)
 	p_close(file->fd);
 	file->fd = -1;
 
-	if (p_chmod(file->path_lock, mode)) {
-		error = git__throw(GIT_EOSERR, "Failed to chmod locked file before committing");
+	if (p_chmod(file->path_lock, mode) < GIT_SUCCESS) {
+		error = git__throw(GIT_EOSERR, "Failed to change permissions on committed file");
 		goto cleanup;
 	}
 
-	error = p_rename(file->path_lock, file->path_original);
+	if (p_rename(file->path_lock, file->path_original) < GIT_SUCCESS) {
+		error = git__throw(GIT_EOSERR, "Failed to commit locked file from buffer");
+		goto cleanup;
+	}
+
 
 cleanup:
 	git_filebuf_cleanup(file);
-	if (error < GIT_SUCCESS)
-		return git__rethrow(error, "Failed to commit locked file from buffer");
-	return GIT_SUCCESS;
+	return error;
 }
 
 GIT_INLINE(void) add_to_cache(git_filebuf *file, const void *buf, size_t len)
