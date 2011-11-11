@@ -670,6 +670,15 @@ static int loose_backend__stream_fwrite(git_oid *oid, git_odb_stream *_stream)
 		return git__rethrow(error, "Failed to write loose backend");
 
 	stream->finished = 1;
+
+	/*
+	 * If we try to overwrite an object file in Windows,
+	 * git_filebuf_commit_at will fail, because we're not allowed to
+	 * overwrite a file to which we don't have write permission.
+	 */
+	if (git_futils_exists(final_path) == GIT_SUCCESS)
+		return GIT_SUCCESS;
+
 	return git_filebuf_commit_at(&stream->fbuf, final_path, GIT_OBJECT_FILE_MODE);
 }
 
