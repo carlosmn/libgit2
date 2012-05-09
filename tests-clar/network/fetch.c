@@ -19,7 +19,7 @@ void test_network_fetch__cleanup(void)
 		git_futils_rmdir_r("fetched", GIT_DIRREMOVAL_FILES_AND_DIRS);
 }
 
-int update_cb(const char *refname, const git_oid *a, const git_oid *b)
+static int update_cb(const char *refname, const git_oid *a, const git_oid *b)
 {
 	const char *action;
 	char a_str[GIT_OID_HEXSZ+1], b_str[GIT_OID_HEXSZ+1];
@@ -45,9 +45,7 @@ void test_network_fetch__can_fetch_the_whole_libgit2_repository_through_http(voi
 	stats.processed = 0;
 	stats.total = 0;
 
-	cl_git_pass(git_remote_new(&remote, repo, "http://github.com/libgit2/libgit2.git", "libgit2"));
-	cl_git_pass(git_remote_set_fetchspec(remote, "refs/*:refs/*"));
-	cl_git_pass(git_remote_save(remote));
+	cl_git_pass(git_remote_new(&remote, repo, "libgit2", "http://github.com/libgit2/libgit2.git", "refs/*:refs/*"));
 
 	cl_git_pass(git_remote_connect(remote, GIT_DIR_FETCH));
 	cl_git_pass(git_remote_download(remote, &bytes, &stats));
