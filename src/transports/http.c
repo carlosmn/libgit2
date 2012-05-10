@@ -583,8 +583,9 @@ static int http_download_pack(git_transport *transport, git_repository *repo, gi
 		if ((recvd = gitno_recv(&buf)) < 0)
 			goto on_error;
 
+		printf("recvd %d ", recvd);
 		parsed = http_parser_execute(&t->parser, &settings, buf.data, buf.offset);
-		printf("recvd %d, objects %d\n", recvd, stats->received);
+		printf("parsed %"PRIuZ", objects %d\n", parsed, stats->received);
 		if (parsed != buf.offset || t->error < 0) {
 			printf("parsed %"PRIuZ" buf.offset %"PRIuZ", t->error %d\n", parsed, buf.offset, t->error);
 			goto on_error;
