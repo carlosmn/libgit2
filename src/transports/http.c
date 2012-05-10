@@ -583,6 +583,7 @@ static int http_download_pack(git_transport *transport, git_repository *repo, gi
 			goto on_error;
 
 		parsed = http_parser_execute(&t->parser, &settings, buf.data, buf.offset);
+		printf("recvd %d, objects %d\n", recvd, stats->received);
 		if (parsed != buf.offset || t->error < 0)
 			goto on_error;
 
@@ -590,6 +591,7 @@ static int http_download_pack(git_transport *transport, git_repository *repo, gi
 		gitno_consume_n(&buf, parsed);
 	} while (recvd > 0 && !t->transfer_finished);
 
+	puts("Connection closed");
 	if (git_indexer_stream_finalize(idx, stats) < 0)
 		goto on_error;
 

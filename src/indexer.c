@@ -443,10 +443,12 @@ int git_indexer_stream_finalize(git_indexer_stream *idx, git_indexer_stats *stat
 	git_oid file_hash;
 	SHA_CTX ctx;
 
+	printf("finalizing indexer, processes %d of %d\n", stats->processed, stats->total);
 	if (idx->deltas.length > 0)
 		if (resolve_deltas(idx, stats) < 0)
 			return -1;
 
+	puts("resolved deltas");
 	git_vector_sort(&idx->objects);
 
 	git_buf_sets(&filename, idx->pack->pack_name);
