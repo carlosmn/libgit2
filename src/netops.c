@@ -98,6 +98,7 @@ int gitno_connect(GIT_SOCKET *sock, const char *host, const char *port)
 	struct addrinfo hints;
 	int ret;
 	GIT_SOCKET s = INVALID_SOCKET;
+	DWORD value = 1;
 
 	memset(&hints, 0x0, sizeof(struct addrinfo));
 	hints.ai_family = AF_UNSPEC;
@@ -126,6 +127,11 @@ int gitno_connect(GIT_SOCKET *sock, const char *host, const char *port)
 	/* Oops, we couldn't connect to any address */
 	if (s == INVALID_SOCKET && p == NULL) {
 		giterr_set(GITERR_OS, "Failed to connect to %s", host);
+		return -1;
+	}
+
+	if (setsockopt(s, SOL_SOCKET, SO_KEEPALIVE, &value, sizeof(value)) < 0) {
+		giterr_set(GITERR_OS, "Failed to set keepalive");
 		return -1;
 	}
 
