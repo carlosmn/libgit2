@@ -205,6 +205,10 @@ static int on_message_complete(http_parser *parser)
 	transport_http *t = (transport_http *) parser->data;
 
 	t->transfer_finished = 1;
+	if (!http_should_keep_alive(parser)) {
+		gitno_close(t->socket);
+		t->socket = -1;
+	}
 
 	if (parser->status_code == 404) {
 		giterr_set(GITERR_NET, "Remote error: %s", git_buf_cstr(&t->buf));
@@ -217,7 +221,7 @@ static int on_message_complete(http_parser *parser)
 static int store_refs(transport_http *t)
 {
 	http_parser_settings settings;
-	char buffer[1024];
+	char buffer[4*1024];
 	gitno_buffer buf;
 	git_pkt *pkt;
 	int ret;
