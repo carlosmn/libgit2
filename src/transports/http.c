@@ -542,7 +542,7 @@ static int http_download_pack(git_transport *transport, git_repository *repo, gi
 	git_buf *oldbuf = &t->buf;
 	int recvd;
 	http_parser_settings settings;
-	char buffer[1024];
+	char buffer[4*1024];
 	gitno_buffer buf;
 	git_indexer_stream *idx = NULL;
 	download_pack_cbdata data;
@@ -579,13 +579,16 @@ static int http_download_pack(git_transport *transport, git_repository *repo, gi
 	do {
 		size_t parsed;
 
+		printf("offset %"PRIuZ" ", buf.offset);
 		if ((recvd = gitno_recv(&buf)) < 0)
 			goto on_error;
 
 		parsed = http_parser_execute(&t->parser, &settings, buf.data, buf.offset);
 		printf("recvd %d, objects %d\n", recvd, stats->received);
-		if (parsed != buf.offset || t->error < 0)
+		if (parsed != buf.offset || t->error < 0) {
+			printf("parsed %"PRIuZ" buf.offset %"PRIuZ", t->error %d\n", parsed, buf.offset, t->error);
 			goto on_error;
+		}
 
 		*bytes += recvd;
 		gitno_consume_n(&buf, parsed);
