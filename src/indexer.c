@@ -340,7 +340,7 @@ int git_indexer_stream_add(git_indexer_stream *idx, const void *data, size_t siz
 			return -1;
 
 		stats->total = (unsigned int)idx->nr_objects;
-		stats->processed = 0;
+		stats->processed = stats->received = 0;
 	}
 
 	/* Now that we have data in the pack, let's try to parse it */
@@ -368,9 +368,11 @@ int git_indexer_stream_add(git_indexer_stream *idx, const void *data, size_t siz
 			if (error < 0)
 				return error;
 
+			stats->received++;
 			continue;
 		}
 
+		stats->received++;
 		if (hash_and_save(idx, &obj, entry_start) < 0)
 			goto on_error;
 
