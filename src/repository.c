@@ -1141,7 +1141,7 @@ on_error:
 	return -1;
 }
 
-static ssize_t state_none(char *buffer, size_t len, git_repository *repo)
+static ssize_t state_fromfile(char *buffer, size_t len, git_repository *repo, const char *filename)
 {
 	git_buf buf = GIT_BUF_INIT, path = GIT_BUF_INIT;
 	struct stat st;
@@ -1149,7 +1149,7 @@ static ssize_t state_none(char *buffer, size_t len, git_repository *repo)
 	int error;
 
 	/* FIXME: use a #define for this */
-	if (git_buf_joinpath(&path, repo->path_repository, "COMMIT_EDITMSG") < 0)
+	if (git_buf_joinpath(&path, repo->path_repository, filename) < 0)
 		return -1;
 
 	error = p_stat(git_buf_cstr(&path), &st);
@@ -1181,14 +1181,24 @@ on_error:
 ssize_t git_repository_message(char *buffer, size_t len, git_repository *repo)
 {
 	int state;
+	ssize_t ret;
 
 	state = git_repository_state(repo);
 	switch (state) {
 	case GIT_REPOSITORY_STATE_REVERT:
 		return state_revert(buffer, len, repo);
+
 	case GIT_REPOSITORY_STATE_CHERRY_PICK:
+		ret = state_fromfile(buffer, len, repo, "MERGE_MSG");
+		if (ret != GIT_ENOTFOUND)
+			return ret;
+		return state_fromfile(buffer, len, repo, "COMMIT_EDITMSG");
+
+	case GIT_REPOSITORY_STATE_MERGE:
+		return state_fromfile(buffer, len, repo, "MERGE_MSG");
+
 	case GIT_REPOSITORY_STATE_NONE:
-		return state_none(buffer, len, repo);
+		return state_fromfile(buffer, len, repo, "COMMIT_EDITMSG");
 	default:
 		giterr_set(GITERR_REPOSITORY, "I don't know about this state, sorry");
 		return -1;
