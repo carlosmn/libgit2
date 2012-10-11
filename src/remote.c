@@ -447,7 +447,7 @@ int git_remote_download(git_remote *remote, git_off_t *bytes, git_indexer_stats 
 
 int git_remote_update_tips(git_remote *remote)
 {
-	int error = 0, autotag;
+	int error = 0, autotag, all_tags;
 	unsigned int i = 0;
 	git_buf refname = GIT_BUF_INIT;
 	git_oid old;
@@ -473,11 +473,16 @@ int git_remote_update_tips(git_remote *remote)
 	if (git_refspec__parse(&tagspec, GIT_REFSPEC_TAGS, true) < 0)
 		return -1;
 
+	all_tags = remote->download_tags == GIT_REMOTE_DOWNLOAD_TAGS_ALL;
 	/* HEAD is only allowed to be the first in the list */
 	pkt = refs->contents[0];
 	head = &((git_pkt_ref *)pkt)->head;
 	if (!strcmp(head->name, GIT_HEAD_FILE)) {
-		if (git_reference_create_oid(&ref, remote->repo, GIT_FETCH_HEAD_FILE, &head->oid, 1) < 0)
+		int skip = 0;
+		/* This is a workaround for the tagopt --tags not downloading the remote HEAD */
+		if (all_tags && !git_odb_exists(odb, &head->oid))
+			skip = 1;
+		if (!skip && git_reference_create_oid(&ref, remote->repo, GIT_FETCH_HEAD_FILE, &head->oid, 1) < 0)
 			return -1;
 
 		i = 1;
@@ -497,12 +502,12 @@ int git_remote_update_tips(git_remote *remote)
 		if (!git_reference_is_valid_name(head->name))
 			continue;
 
-		if (git_refspec_src_matches(spec, head->name)) {
+		if (!all_tags && git_refspec_src_matches(spec, head->name)) {
 			if (git_refspec_transform_r(&refname, spec, head->name) < 0)
 				goto on_error;
 		} else if (remote->download_tags != GIT_REMOTE_DOWNLOAD_TAGS_NONE) {
 
-			if (remote->download_tags != GIT_REMOTE_DOWNLOAD_TAGS_ALL)
+			if (!all_tags)
 				autotag = 1;
 
 			if (!git_refspec_src_matches(&tagspec, head->name))
