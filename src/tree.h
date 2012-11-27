@@ -58,4 +58,9 @@ int git_tree__write_index(git_oid *oid, git_index *index, git_repository *repo);
  */
 #define GIT_FILEMODE_BLOB_GROUP_WRITABLE 0100664
 
+/**
+ * This has been spotted in the wild
+ */
+#define GIT_FILEMODE_BLOB_GROUP_NONE 0100600
+
 #endif

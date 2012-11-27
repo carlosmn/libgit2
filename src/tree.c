@@ -20,6 +20,7 @@ static bool valid_filemode(const int filemode)
 		|| filemode == GIT_FILEMODE_BLOB
 		|| filemode == GIT_FILEMODE_BLOB_GROUP_WRITABLE
 		|| filemode == GIT_FILEMODE_BLOB_EXECUTABLE
+		|| filemode == GIT_FILEMODE_BLOB_GROUP_NONE
 		|| filemode == GIT_FILEMODE_LINK
 		|| filemode == GIT_FILEMODE_COMMIT);
 }
