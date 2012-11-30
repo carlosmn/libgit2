@@ -227,6 +227,7 @@ static int hash_and_save(git_indexer_stream *idx, git_rawobj *obj, git_off_t ent
 	git_mwindow *w = NULL;
 	git_mwindow_file *mwf = &idx->pack->mwf;
 	struct git_pack_entry *pentry;
+	git_off_t crcd;
 
 	entry = git__calloc(1, sizeof(*entry));
 	GITERR_CHECK_ALLOC(entry);
@@ -258,12 +259,17 @@ static int hash_and_save(git_indexer_stream *idx, git_rawobj *obj, git_off_t ent
 	entry->crc = crc32(0L, Z_NULL, 0);
 
 	entry_size = (size_t)(idx->off - entry_start);
-	packed = git_mwindow_open(mwf, &w, entry_start, entry_size, &left);
-	if (packed == NULL)
-		goto on_error;
+	crcd = 0;
+	while (crcd < entry_size) {
+		packed = git_mwindow_open(mwf, &w, entry_start, entry_size, &left);
+		if (packed == NULL)
+			goto on_error;
 
-	entry->crc = htonl(crc32(entry->crc, packed, (uInt)entry_size));
-	git_mwindow_close(&w);
+
+		entry->crc = htonl(crc32(entry->crc, packed, left));
+		crcd += left;
+		git_mwindow_close(&w);
+	}
 
 	/* Add the object to the list */
 	if (git_vector_insert(&idx->objects, entry) < 0)
