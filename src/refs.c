@@ -339,10 +339,10 @@ static int packed_parse_peel(
 	if (*buffer == '\r')
 		buffer++;
 
+	/* There must be a LF or EOF here */
 	if (*buffer == '\n')
 		buffer++;
-
-	if (buffer != buffer_end)
+	else if (buffer != buffer_end)
 		goto corrupt;
 
 	*buffer_out = buffer;
