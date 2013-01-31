@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009-2012 the libgit2 contributors
+ * Copyright (C) the libgit2 contributors. All rights reserved.
  *
  * This file is part of libgit2, distributed under the GNU GPL v2 with
  * a Linking Exception. For full terms see the included COPYING file.
@@ -1005,8 +1005,17 @@ static int repo_init_structure(
 			tdir = GIT_TEMPLATE_DIR;
 		}
 
+		/* FIXME: GIT_CPDIR_CHMOD cannot applied here as an attempt
+		 * would be made to chmod() all directories up to the last
+		 * component of repo_dir, e.g., also /home etc. Recall that
+		 * repo_dir is prettified at this point.
+		 *
+		 * Best probably would be to have the same logic as in
+		 * git_futils_mkdir(), i.e., to separate the base from
+		 * the path.
+		 */
 		error = git_futils_cp_r(tdir, repo_dir,
-			GIT_CPDIR_COPY_SYMLINKS | GIT_CPDIR_CHMOD, dmode);
+			GIT_CPDIR_COPY_SYMLINKS /*| GIT_CPDIR_CHMOD*/, dmode);
 
 		if (error < 0) {
 			if (strcmp(tdir, GIT_TEMPLATE_DIR) != 0)
@@ -1015,6 +1024,7 @@ static int repo_init_structure(
 			/* if template was default, ignore error and use internal */
 			giterr_clear();
 			external_tpl = false;
+			error = 0;
 		}
 	}
 
@@ -1140,8 +1150,7 @@ static int repo_init_create_origin(git_repository *repo, const char *url)
 	int error;
 	git_remote *remote;
 
-	if (!(error = git_remote_add(&remote, repo, GIT_REMOTE_ORIGIN, url))) {
-		error = git_remote_save(remote);
+	if (!(error = git_remote_create(&remote, repo, GIT_REMOTE_ORIGIN, url))) {
 		git_remote_free(remote);
 	}
 

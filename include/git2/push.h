@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009-2012 the libgit2 contributors
+ * Copyright (C) the libgit2 contributors. All rights reserved.
  *
  * This file is part of libgit2, distributed under the GNU GPL v2 with
  * a Linking Exception. For full terms see the included COPYING file.
@@ -37,6 +37,15 @@ GIT_EXTERN(int) git_push_new(git_push **out, git_remote *remote);
  * @return 0 or an error code
  */
 GIT_EXTERN(int) git_push_add_refspec(git_push *push, const char *refspec);
+
+/**
+ * Update remote tips after a push
+ *
+ * @param push The push object
+ *
+ * @return 0 or an error code
+ */
+GIT_EXTERN(int) git_push_update_tips(git_push *push);
 
 /**
  * Actually push all given refspecs

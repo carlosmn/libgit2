@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009-2012 the libgit2 contributors
+ * Copyright (C) the libgit2 contributors. All rights reserved.
  *
  * This file is part of libgit2, distributed under the GNU GPL v2 with
  * a Linking Exception. For full terms see the included COPYING file.
@@ -16,7 +16,12 @@
 #define p_unlink(p) unlink(p)
 #define p_mkdir(p,m) mkdir(p, m)
 #define p_fsync(fd) fsync(fd)
-#define p_realpath(p, po) realpath(p, po)
+
+/* The OpenBSD realpath function behaves differently */
+#if !defined(__OpenBSD__)
+# define p_realpath(p, po) realpath(p, po)
+#endif
+
 #define p_vsnprintf(b, c, f, a) vsnprintf(b, c, f, a)
 #define p_snprintf(b, c, f, ...) snprintf(b, c, f, __VA_ARGS__)
 #define p_mkstemp(p) mkstemp(p)

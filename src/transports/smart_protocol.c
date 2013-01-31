@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009-2012 the libgit2 contributors
+ * Copyright (C) the libgit2 contributors. All rights reserved.
  *
  * This file is part of libgit2, distributed under the GNU GPL v2 with
  * a Linking Exception. For full terms see the included COPYING file.
@@ -231,10 +231,10 @@ int git_smart__negotiate_fetch(git_transport *transport, git_repository *repo, c
 	git_oid oid;
 
 	/* No own logic, do our thing */
-	if (git_pkt_buffer_wants(refs, count, &t->caps, &data) < 0)
-		return -1;
+	if ((error = git_pkt_buffer_wants(refs, count, &t->caps, &data)) < 0)
+		return error;
 
-	if (fetch_setup_walk(&walk, repo) < 0)
+	if ((error = fetch_setup_walk(&walk, repo)) < 0)
 		goto on_error;
 	/*
 	 * We don't support any kind of ACK extensions, so the negotiation
@@ -242,7 +242,16 @@ int git_smart__negotiate_fetch(git_transport *transport, git_repository *repo, c
 	 * every once in a while.
 	 */
 	i = 0;
-	while ((error = git_revwalk_next(&oid, walk)) == 0) {
+	while (true) {
+		error = git_revwalk_next(&oid, walk);
+
+		if (error < 0) {
+			if (GIT_ITEROVER == error)
+				break;
+
+			goto on_error;
+		}
+
 		git_pkt_buffer_have(&oid, &data);
 		i++;
 		if (i % 20 == 0) {
@@ -253,15 +262,17 @@ int git_smart__negotiate_fetch(git_transport *transport, git_repository *repo, c
 			}
 
 			git_pkt_buffer_flush(&data);
-			if (git_buf_oom(&data))
+			if (git_buf_oom(&data)) {
+				error = -1;
 				goto on_error;
+			}
 
-			if (git_smart__negotiation_step(&t->parent, data.ptr, data.size) < 0)
+			if ((error = git_smart__negotiation_step(&t->parent, data.ptr, data.size)) < 0)
 				goto on_error;
 
 			git_buf_clear(&data);
 			if (t->caps.multi_ack) {
-				if (store_common(t) < 0)
+				if ((error = store_common(t)) < 0)
 					goto on_error;
 			} else {
 				pkt_type = recv_pkt(NULL, buf);
@@ -270,8 +281,13 @@ int git_smart__negotiate_fetch(git_transport *transport, git_repository *repo, c
 					break;
 				} else if (pkt_type == GIT_PKT_NAK) {
 					continue;
+				} else if (pkt_type < 0) {
+					/* recv_pkt returned an error */
+					error = pkt_type;
+					goto on_error;
 				} else {
 					giterr_set(GITERR_NET, "Unexpected pkt type");
+					error = -1;
 					goto on_error;
 				}
 			}
@@ -284,44 +300,49 @@ int git_smart__negotiate_fetch(git_transport *transport, git_repository *repo, c
 			git_pkt_ack *pkt;
 			unsigned int i;
 
-			if (git_pkt_buffer_wants(refs, count, &t->caps, &data) < 0)
+			if ((error = git_pkt_buffer_wants(refs, count, &t->caps, &data)) < 0)
 				goto on_error;
 
 			git_vector_foreach(&t->common, i, pkt) {
-				git_pkt_buffer_have(&pkt->oid, &data);
+				if ((error = git_pkt_buffer_have(&pkt->oid, &data)) < 0)
+					goto on_error;
 			}
 
-			if (git_buf_oom(&data))
+			if (git_buf_oom(&data)) {
+				error = -1;
 				goto on_error;
+			}
 		}
 	}
-
-	if (error < 0 && error != GIT_ITEROVER)
-		goto on_error;
 
 	/* Tell the other end that we're done negotiating */
 	if (t->rpc && t->common.length > 0) {
 		git_pkt_ack *pkt;
 		unsigned int i;
 
-		if (git_pkt_buffer_wants(refs, count, &t->caps, &data) < 0)
+		if ((error = git_pkt_buffer_wants(refs, count, &t->caps, &data)) < 0)
 			goto on_error;
 
 		git_vector_foreach(&t->common, i, pkt) {
-			git_pkt_buffer_have(&pkt->oid, &data);
+			if ((error = git_pkt_buffer_have(&pkt->oid, &data)) < 0)
+				goto on_error;
 		}
 
-		if (git_buf_oom(&data))
+		if (git_buf_oom(&data)) {
+			error = -1;
 			goto on_error;
+		}
 	}
 
-	git_pkt_buffer_done(&data);
+	if ((error = git_pkt_buffer_done(&data)) < 0)
+		goto on_error;
+
 	if (t->cancelled.val) {
 		giterr_set(GITERR_NET, "The fetch was cancelled by the user");
 		error = GIT_EUSER;
 		goto on_error;
 	}
-	if (git_smart__negotiation_step(&t->parent, data.ptr, data.size) < 0)
+	if ((error = git_smart__negotiation_step(&t->parent, data.ptr, data.size)) < 0)
 		goto on_error;
 
 	git_buf_free(&data);
@@ -330,15 +351,18 @@ int git_smart__negotiate_fetch(git_transport *transport, git_repository *repo, c
 	/* Now let's eat up whatever the server gives us */
 	if (!t->caps.multi_ack) {
 		pkt_type = recv_pkt(NULL, buf);
-		if (pkt_type != GIT_PKT_ACK && pkt_type != GIT_PKT_NAK) {
+
+		if (pkt_type < 0) {
+			return pkt_type;
+		} else if (pkt_type != GIT_PKT_ACK && pkt_type != GIT_PKT_NAK) {
 			giterr_set(GITERR_NET, "Unexpected pkt type");
 			return -1;
 		}
 	} else {
 		git_pkt_ack *pkt;
 		do {
-			if (recv_pkt((git_pkt **)&pkt, buf) < 0)
-				return -1;
+			if ((error = recv_pkt((git_pkt **)&pkt, buf)) < 0)
+				return error;
 
 			if (pkt->type == GIT_PKT_NAK ||
 			    (pkt->type == GIT_PKT_ACK && pkt->status != GIT_ACK_CONTINUE)) {
@@ -499,61 +523,25 @@ on_error:
 
 static int gen_pktline(git_buf *buf, git_push *push)
 {
-	git_remote_head *head;
 	push_spec *spec;
-	unsigned int i, j, len;
-	char hex[41]; hex[40] = '\0';
+	size_t i, len;
+	char old_id[41], new_id[41];
+
+	old_id[40] = '\0'; new_id[40] = '\0';
 
 	git_vector_foreach(&push->specs, i, spec) {
-		len = 2*GIT_OID_HEXSZ + 7;
+		len = 2*GIT_OID_HEXSZ + 7 + strlen(spec->rref);
 
 		if (i == 0) {
-			len +=1; /* '\0' */
+			++len; /* '\0' */
 			if (push->report_status)
 				len += strlen(GIT_CAP_REPORT_STATUS);
 		}
 
-		if (spec->lref) {
-			len += spec->rref ? strlen(spec->rref) : strlen(spec->lref);
+		git_oid_fmt(old_id, &spec->roid);
+		git_oid_fmt(new_id, &spec->loid);
 
-			if (git_oid_iszero(&spec->roid)) {
-
-				/*
-				 * Create remote reference
-				 */
-				git_oid_fmt(hex, &spec->loid);
-				git_buf_printf(buf, "%04x%s %s %s", len,
-					GIT_OID_HEX_ZERO, hex,
-					spec->rref ? spec->rref : spec->lref);
-
-			} else {
-
-				/*
-				 * Update remote reference
-				 */
-				git_oid_fmt(hex, &spec->roid);
-				git_buf_printf(buf, "%04x%s ", len, hex);
-
-				git_oid_fmt(hex, &spec->loid);
-				git_buf_printf(buf, "%s %s", hex,
-					spec->rref ? spec->rref : spec->lref);
-			}
-		} else {
-			/*
-			 * Delete remote reference
-			 */
-			git_vector_foreach(&push->remote->refs, j, head) {
-				if (!strcmp(spec->rref, head->name)) {
-					len += strlen(spec->rref);
-
-					git_oid_fmt(hex, &head->oid);
-					git_buf_printf(buf, "%04x%s %s %s", len,
-						       hex, GIT_OID_HEX_ZERO, head->name);
-
-					break;
-				}
-			}
-		}
+		git_buf_printf(buf, "%04"PRIxZ"%s %s %s", len, old_id, new_id, spec->rref);
 
 		if (i == 0) {
 			git_buf_putc(buf, '\0');
@@ -563,6 +551,7 @@ static int gen_pktline(git_buf *buf, git_push *push)
 
 		git_buf_putc(buf, '\n');
 	}
+
 	git_buf_puts(buf, "0000");
 	return git_buf_oom(buf) ? -1 : 0;
 }

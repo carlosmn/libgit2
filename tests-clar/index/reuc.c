@@ -31,6 +31,56 @@ void test_index_reuc__cleanup(void)
 	cl_git_sandbox_cleanup();
 }
 
+void test_index_reuc__add(void)
+{
+	git_oid ancestor_oid, our_oid, their_oid;
+	const git_index_reuc_entry *reuc;
+
+	git_oid_fromstr(&ancestor_oid, ONE_ANCESTOR_OID);
+	git_oid_fromstr(&our_oid, ONE_OUR_OID);
+	git_oid_fromstr(&their_oid, ONE_THEIR_OID);
+
+	cl_git_pass(git_index_reuc_add(repo_index, "newfile.txt",
+		0100644, &ancestor_oid,
+		0100644, &our_oid,
+		0100644, &their_oid));
+
+	cl_assert(reuc = git_index_reuc_get_bypath(repo_index, "newfile.txt"));
+
+	cl_assert_equal_s("newfile.txt", reuc->path);
+	cl_assert(reuc->mode[0] == 0100644);
+	cl_assert(reuc->mode[1] == 0100644);
+	cl_assert(reuc->mode[2] == 0100644);
+	cl_assert(git_oid_cmp(&reuc->oid[0], &ancestor_oid) == 0);
+	cl_assert(git_oid_cmp(&reuc->oid[1], &our_oid) == 0);
+	cl_assert(git_oid_cmp(&reuc->oid[2], &their_oid) == 0);
+}
+
+void test_index_reuc__add_no_ancestor(void)
+{
+	git_oid ancestor_oid, our_oid, their_oid;
+	const git_index_reuc_entry *reuc;
+
+	memset(&ancestor_oid, 0x0, sizeof(git_oid));
+	git_oid_fromstr(&our_oid, ONE_OUR_OID);
+	git_oid_fromstr(&their_oid, ONE_THEIR_OID);
+
+	cl_git_pass(git_index_reuc_add(repo_index, "newfile.txt",
+		0, NULL,
+		0100644, &our_oid,
+		0100644, &their_oid));
+
+	cl_assert(reuc = git_index_reuc_get_bypath(repo_index, "newfile.txt"));
+
+	cl_assert_equal_s("newfile.txt", reuc->path);
+	cl_assert(reuc->mode[0] == 0);
+	cl_assert(reuc->mode[1] == 0100644);
+	cl_assert(reuc->mode[2] == 0100644);
+	cl_assert(git_oid_cmp(&reuc->oid[0], &ancestor_oid) == 0);
+	cl_assert(git_oid_cmp(&reuc->oid[1], &our_oid) == 0);
+	cl_assert(git_oid_cmp(&reuc->oid[2], &their_oid) == 0);
+}
+
 void test_index_reuc__read_bypath(void)
 {
 	const git_index_reuc_entry *reuc;
@@ -40,7 +90,7 @@ void test_index_reuc__read_bypath(void)
 
 	cl_assert(reuc = git_index_reuc_get_bypath(repo_index, "two.txt"));
 
-	cl_assert(strcmp(reuc->path, "two.txt") == 0);
+	cl_assert_equal_s("two.txt", reuc->path);
 	cl_assert(reuc->mode[0] == 0100644);
 	cl_assert(reuc->mode[1] == 0100644);
 	cl_assert(reuc->mode[2] == 0100644);
@@ -53,7 +103,7 @@ void test_index_reuc__read_bypath(void)
 
 	cl_assert(reuc = git_index_reuc_get_bypath(repo_index, "one.txt"));
 
-	cl_assert(strcmp(reuc->path, "one.txt") == 0);
+	cl_assert_equal_s("one.txt", reuc->path);
 	cl_assert(reuc->mode[0] == 0100644);
 	cl_assert(reuc->mode[1] == 0100644);
 	cl_assert(reuc->mode[2] == 0100644);
@@ -85,7 +135,7 @@ void test_index_reuc__ignore_case(void)
 
 	cl_assert(reuc = git_index_reuc_get_bypath(repo_index, "TWO.txt"));
 
-	cl_assert(strcmp(reuc->path, "two.txt") == 0);
+	cl_assert_equal_s("two.txt", reuc->path);
 	cl_assert(reuc->mode[0] == 0100644);
 	cl_assert(reuc->mode[1] == 0100644);
 	cl_assert(reuc->mode[2] == 0100644);
@@ -106,7 +156,7 @@ void test_index_reuc__read_byindex(void)
 
 	cl_assert(reuc = git_index_reuc_get_byindex(repo_index, 0));
 
-	cl_assert(strcmp(reuc->path, "one.txt") == 0);
+	cl_assert_equal_s("one.txt", reuc->path);
 	cl_assert(reuc->mode[0] == 0100644);
 	cl_assert(reuc->mode[1] == 0100644);
 	cl_assert(reuc->mode[2] == 0100644);
@@ -119,7 +169,7 @@ void test_index_reuc__read_byindex(void)
 
 	cl_assert(reuc = git_index_reuc_get_byindex(repo_index, 1));
 
-	cl_assert(strcmp(reuc->path, "two.txt") == 0);
+	cl_assert_equal_s("two.txt", reuc->path);
 	cl_assert(reuc->mode[0] == 0100644);
 	cl_assert(reuc->mode[1] == 0100644);
 	cl_assert(reuc->mode[2] == 0100644);
@@ -162,7 +212,7 @@ void test_index_reuc__updates_existing(void)
 
 	cl_assert(reuc = git_index_reuc_get_byindex(repo_index, 0));
 
-	cl_assert(strcmp(reuc->path, "TWO.txt") == 0);
+	cl_assert_equal_s("TWO.txt", reuc->path);
 	git_oid_fromstr(&oid, TWO_OUR_OID);
 	cl_assert(git_oid_cmp(&reuc->oid[0], &oid) == 0);
 	git_oid_fromstr(&oid, TWO_THEIR_OID);
@@ -185,7 +235,7 @@ void test_index_reuc__remove(void)
 
 	cl_assert(reuc = git_index_reuc_get_byindex(repo_index, 0));
 
-	cl_assert(strcmp(reuc->path, "two.txt") == 0);
+	cl_assert_equal_s("two.txt", reuc->path);
 	cl_assert(reuc->mode[0] == 0100644);
 	cl_assert(reuc->mode[1] == 0100644);
 	cl_assert(reuc->mode[2] == 0100644);
@@ -230,9 +280,9 @@ void test_index_reuc__write(void)
 
 	/* ensure sort order was round-tripped correct */
 	cl_assert(reuc = git_index_reuc_get_byindex(repo_index, 0));
-	cl_assert(strcmp(reuc->path, "one.txt") == 0);
+	cl_assert_equal_s("one.txt", reuc->path);
 	
 	cl_assert(reuc = git_index_reuc_get_byindex(repo_index, 1));
-	cl_assert(strcmp(reuc->path, "two.txt") == 0);
+	cl_assert_equal_s("two.txt", reuc->path);
 }
 

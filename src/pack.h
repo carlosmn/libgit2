@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009-2012 the libgit2 contributors
+ * Copyright (C) the libgit2 contributors. All rights reserved.
  *
  * This file is part of libgit2, distributed under the GNU GPL v2 with
  * a Linking Exception. For full terms see the included COPYING file.
@@ -53,6 +53,27 @@ struct git_pack_idx_header {
 	uint32_t idx_version;
 };
 
+typedef struct git_pack_cache_entry {
+	size_t last_usage; /* enough? */
+	git_atomic refcount;
+	git_rawobj raw;
+} git_pack_cache_entry;
+
+#include "offmap.h"
+
+GIT__USE_OFFMAP;
+
+#define GIT_PACK_CACHE_MEMORY_LIMIT 16 * 1024 * 1024
+#define GIT_PACK_CACHE_SIZE_LIMIT 1024 * 1024 /* don't bother caching anything over 1MB */
+
+typedef struct {
+	size_t memory_used;
+	size_t memory_limit;
+	size_t use_ctr;
+	git_mutex lock;
+	git_offmap *entries;
+} git_pack_cache;
+
 struct git_pack_file {
 	git_mwindow_file mwf;
 	git_map index_map;
@@ -67,6 +88,8 @@ struct git_pack_file {
 	git_oid sha1;
 	git_vector cache;
 	git_oid **oids;
+
+	git_pack_cache bases; /* delta base cache */
 
 	/* something like ".git/objects/pack/xxxxx.pack" */
 	char pack_name[GIT_FLEX_ARRAY]; /* more */
@@ -116,7 +139,7 @@ git_off_t get_delta_base(struct git_pack_file *p, git_mwindow **w_curs,
 		git_off_t *curpos, git_otype type,
 		git_off_t delta_obj_offset);
 
-void packfile_free(struct git_pack_file *p);
+void git_packfile_free(struct git_pack_file *p);
 int git_packfile_check(struct git_pack_file **pack_out, const char *path);
 int git_pack_entry_find(
 		struct git_pack_entry *e,

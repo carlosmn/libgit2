@@ -32,6 +32,7 @@ void test_stash_save__cleanup(void)
 	repo = NULL;
 
 	cl_git_pass(git_futils_rmdir_r("stash", NULL, GIT_RMDIR_REMOVE_FILES));
+	cl_fixture_cleanup("sorry-it-is-a-non-bare-only-party");
 }
 
 static void assert_object_oid(const char* revision, const char* expected_oid, git_otype type)
@@ -250,8 +251,8 @@ void test_stash_save__cannot_stash_when_there_are_no_local_change(void)
 	 * 'what' and 'who' are being committed.
 	 * 'when' remain untracked.
 	 */
-	cl_git_pass(git_index_add_from_workdir(index, "what"));
-	cl_git_pass(git_index_add_from_workdir(index, "who"));
+	cl_git_pass(git_index_add_bypath(index, "what"));
+	cl_git_pass(git_index_add_bypath(index, "who"));
 	cl_git_pass(git_index_write(index));
 	commit_staged_files(&commit_oid, index, signature);
 	git_index_free(index);

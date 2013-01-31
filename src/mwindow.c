@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009-2012 the libgit2 contributors
+ * Copyright (C) the libgit2 contributors. All rights reserved.
  *
  * This file is part of libgit2, distributed under the GNU GPL v2 with
  * a Linking Exception. For full terms see the included COPYING file.
@@ -20,17 +20,8 @@
 #define DEFAULT_MAPPED_LIMIT \
 	((1024 * 1024) * (sizeof(void*) >= 8 ? 8192ULL : 256UL))
 
-/*
- * These are the global options for mmmap limits.
- * TODO: allow the user to change these
- */
-static struct {
-	size_t window_size;
-	size_t mapped_limit;
-} _mw_options = {
-	DEFAULT_WINDOW_SIZE,
-	DEFAULT_MAPPED_LIMIT,
-};
+size_t git_mwindow__window_size = DEFAULT_WINDOW_SIZE;
+size_t git_mwindow__mapped_limit = DEFAULT_MAPPED_LIMIT;
 
 /* Whenever you want to read or modify this, grab git__mwindow_mutex */
 static git_mwindow_ctl mem_ctl;
@@ -166,7 +157,7 @@ static git_mwindow *new_window(
 	git_off_t offset)
 {
 	git_mwindow_ctl *ctl = &mem_ctl;
-	size_t walign = _mw_options.window_size / 2;
+	size_t walign = git_mwindow__window_size / 2;
 	git_off_t len;
 	git_mwindow *w;
 
@@ -179,16 +170,16 @@ static git_mwindow *new_window(
 	w->offset = (offset / walign) * walign;
 
 	len = size - w->offset;
-	if (len > (git_off_t)_mw_options.window_size)
-		len = (git_off_t)_mw_options.window_size;
+	if (len > (git_off_t)git_mwindow__window_size)
+		len = (git_off_t)git_mwindow__window_size;
 
 	ctl->mapped += (size_t)len;
 
-	while (_mw_options.mapped_limit < ctl->mapped &&
+	while (git_mwindow__mapped_limit < ctl->mapped &&
 			git_mwindow_close_lru(mwf) == 0) /* nop */;
 
 	/*
-	 * We treat _mw_options.mapped_limit as a soft limit. If we can't find a
+	 * We treat `mapped_limit` as a soft limit. If we can't find a
 	 * window to close and are above the limit, we still mmap the new
 	 * window.
 	 */
@@ -293,28 +284,23 @@ int git_mwindow_file_register(git_mwindow_file *mwf)
 	return ret;
 }
 
-int git_mwindow_file_deregister(git_mwindow_file *mwf)
+void git_mwindow_file_deregister(git_mwindow_file *mwf)
 {
 	git_mwindow_ctl *ctl = &mem_ctl;
 	git_mwindow_file *cur;
 	unsigned int i;
 
-	if (git_mutex_lock(&git__mwindow_mutex)) {
-		giterr_set(GITERR_THREAD, "unable to lock mwindow mutex");
-		return -1;
-	}
+	if (git_mutex_lock(&git__mwindow_mutex))
+		return;
 
 	git_vector_foreach(&ctl->windowfiles, i, cur) {
 		if (cur == mwf) {
 			git_vector_remove(&ctl->windowfiles, i);
 			git_mutex_unlock(&git__mwindow_mutex);
-			return 0;
+			return;
 		}
 	}
 	git_mutex_unlock(&git__mwindow_mutex);
-
-	giterr_set(GITERR_ODB, "Failed to find the memory window file to deregister");
-	return -1;
 }
 
 void git_mwindow_close(git_mwindow **window)

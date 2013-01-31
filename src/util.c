@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009-2012 the libgit2 contributors
+ * Copyright (C) the libgit2 contributors. All rights reserved.
  *
  * This file is part of libgit2, distributed under the GNU GPL v2 with
  * a Linking Exception. For full terms see the included COPYING file.
@@ -32,6 +32,37 @@ int git_libgit2_capabilities()
 		| GIT_CAP_HTTPS
 #endif
 	;
+}
+
+/* Declarations for tuneable settings */
+extern size_t git_mwindow__window_size;
+extern size_t git_mwindow__mapped_limit;
+
+void git_libgit2_opts(int key, ...)
+{
+	va_list ap;
+
+	va_start(ap, key);
+
+	switch(key) {
+	case GIT_OPT_SET_MWINDOW_SIZE:
+		git_mwindow__window_size = va_arg(ap, size_t);
+		break;
+
+	case GIT_OPT_GET_MWINDOW_SIZE:
+		*(va_arg(ap, size_t *)) = git_mwindow__window_size;
+		break;
+
+	case GIT_OPT_SET_MWINDOW_MAPPED_LIMIT:
+		git_mwindow__mapped_limit = va_arg(ap, size_t);
+		break;
+
+	case GIT_OPT_GET_MWINDOW_MAPPED_LIMIT:
+		*(va_arg(ap, size_t *)) = git_mwindow__mapped_limit;
+		break;
+	}
+
+	va_end(ap);
 }
 
 void git_strarray_free(git_strarray *array)
@@ -201,15 +232,13 @@ int git__strncasecmp(const char *a, const char *b, size_t sz)
 {
 	int al, bl;
 
-	while (sz && *a && *b) {
+	do {
 		al = (unsigned char)tolower(*a);
 		bl = (unsigned char)tolower(*b);
-		if (al != bl)
-			break;
-		--sz, ++a, ++b;
-	}
+		++a, ++b;
+	} while (--sz && al && al == bl);
 
-	return !sz ? 0 : al - bl;
+	return al - bl;
 }
 
 void git__strntolower(char *str, size_t len)
@@ -269,6 +298,24 @@ char *git__strtok(char **end, const char *sep)
 			**end = '\0';
 			++*end;
 		}
+
+		return start;
+	}
+
+	return NULL;
+}
+
+/* Similar to strtok, but does not collapse repeated tokens. */
+char *git__strsep(char **end, const char *sep)
+{
+	char *start = *end, *ptr = *end;
+
+	while (*ptr && !strchr(sep, *ptr))
+		++ptr;
+
+	if (*ptr) {
+		*end = ptr + 1;
+		*ptr = '\0';
 
 		return start;
 	}
@@ -422,6 +469,30 @@ uint32_t git__hash(const void *key, int len, uint32_t seed)
  *
  * Copyright (c) 1990 Regents of the University of California.
  * All rights reserved.
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ * notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ * notice, this list of conditions and the following disclaimer in the
+ * documentation and/or other materials provided with the distribution.
+ * 3. [rescinded 22 July 1999]
+ * 4. Neither the name of the University nor the names of its contributors
+ * may be used to endorse or promote products derived from this software
+ * without specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE REGENTS AND CONTRIBUTORS ``AS IS'' AND
+ * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+ * FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+ * DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS
+ * OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
+ * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
+ * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
+ * OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
+ * SUCH DAMAGE.
  */
 int git__bsearch(
 	void **array,
@@ -430,11 +501,11 @@ int git__bsearch(
 	int (*compare)(const void *, const void *),
 	size_t *position)
 {
-	unsigned int lim;
+	size_t lim;
 	int cmp = -1;
 	void **part, **base = array;
 
-	for (lim = (unsigned int)array_len; lim != 0; lim >>= 1) {
+	for (lim = array_len; lim != 0; lim >>= 1) {
 		part = base + (lim >> 1);
 		cmp = (*compare)(key, *part);
 		if (cmp == 0) {
@@ -450,7 +521,38 @@ int git__bsearch(
 	if (position)
 		*position = (base - array);
 
-	return (cmp == 0) ? 0 : -1;
+	return (cmp == 0) ? 0 : GIT_ENOTFOUND;
+}
+
+int git__bsearch_r(
+	void **array,
+	size_t array_len,
+	const void *key,
+	int (*compare_r)(const void *, const void *, void *),
+	void *payload,
+	size_t *position)
+{
+	size_t lim;
+	int cmp = -1;
+	void **part, **base = array;
+
+	for (lim = array_len; lim != 0; lim >>= 1) {
+		part = base + (lim >> 1);
+		cmp = (*compare_r)(key, *part, payload);
+		if (cmp == 0) {
+			base = part;
+			break;
+		}
+		if (cmp > 0) { /* key > p; take right partition */
+			base = part + 1;
+			lim--;
+		} /* else take left partition */
+	}
+
+	if (position)
+		*position = (base - array);
+
+	return (cmp == 0) ? 0 : GIT_ENOTFOUND;
 }
 
 /**

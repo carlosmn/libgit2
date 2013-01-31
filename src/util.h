@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009-2012 the libgit2 contributors
+ * Copyright (C) the libgit2 contributors. All rights reserved.
  *
  * This file is part of libgit2, distributed under the GNU GPL v2 with
  * a Linking Exception. For full terms see the included COPYING file.
@@ -12,6 +12,9 @@
 #define MSB(x, bits) ((x) & (~0ULL << (bitsizeof(x) - (bits))))
 #ifndef min
 # define min(a,b) ((a) < (b) ? (a) : (b))
+#endif
+#ifndef max
+# define max(a,b) ((a) > (b) ? (a) : (b))
 #endif
 
 /*
@@ -107,6 +110,7 @@ GIT_INLINE(int) git__is_sizet(git_off_t p)
 #endif
 
 extern char *git__strtok(char **end, const char *sep);
+extern char *git__strsep(char **end, const char *sep);
 
 extern void git__strntolower(char *str, size_t len);
 extern void git__strtolower(char *str);
@@ -118,18 +122,34 @@ GIT_INLINE(const char *) git__next_line(const char *s)
 	return s;
 }
 
-extern void git__tsort(void **dst, size_t size, int (*cmp)(const void *, const void *));
+typedef int (*git__tsort_cmp)(const void *a, const void *b);
+
+extern void git__tsort(void **dst, size_t size, git__tsort_cmp cmp);
+
+typedef int (*git__tsort_r_cmp)(const void *a, const void *b, void *payload);
+
+extern void git__tsort_r(
+	void **dst, size_t size, git__tsort_r_cmp cmp, void *payload);
+
 
 /**
  * @param position If non-NULL, this will be set to the position where the
  * 		element is or would be inserted if not found.
- * @return pos (>=0) if found or -1 if not found
+ * @return 0 if found; GIT_ENOTFOUND if not found
  */
 extern int git__bsearch(
 	void **array,
 	size_t array_len,
 	const void *key,
-	int (*compare)(const void *, const void *),
+	int (*compare)(const void *key, const void *element),
+	size_t *position);
+
+extern int git__bsearch_r(
+	void **array,
+	size_t array_len,
+	const void *key,
+	int (*compare_r)(const void *key, const void *element, void *payload),
+	void *payload,
 	size_t *position);
 
 extern int git__strcmp_cb(const void *a, const void *b);

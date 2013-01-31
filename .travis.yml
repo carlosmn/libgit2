@@ -29,17 +29,17 @@ script:
  - cd _build
  - cmake .. -DCMAKE_INSTALL_PREFIX=../_install $OPTIONS
  - cmake --build . --target install
+ - ctest -V .
 
 # Run Tests
-after_script:
- - ctest -V .
- - if [ -f ./libgit2_clar ]; then valgrind --leak-check=full --show-reachable=yes --suppressions=../libgit2_clar.supp ./libgit2_clar -iall; else echo "Skipping valgrind"; fi
+after_success:
+ - valgrind --leak-check=full --show-reachable=yes --suppressions=../libgit2_clar.supp ./libgit2_clar -ionline
 
 # Only watch the development branch
 branches:
  only:
    - development
-   
+
 # Notify development list when needed
 notifications:
  irc:

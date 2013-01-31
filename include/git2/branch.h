@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009-2012 the libgit2 contributors
+ * Copyright (C) the libgit2 contributors. All rights reserved.
  *
  * This file is part of libgit2, distributed under the GNU GPL v2 with
  * a Linking Exception. For full terms see the included COPYING file.
@@ -142,6 +142,24 @@ GIT_EXTERN(int) git_branch_lookup(
 		git_branch_t branch_type);
 
 /**
+ * Return the name of the given local or remote branch.
+ *
+ * The name of the branch matches the definition of the name
+ * for git_branch_lookup. That is, if the returned name is given
+ * to git_branch_lookup() then the reference is returned that
+ * was given to this function.
+ *
+ * @param out where the pointer of branch name is stored;
+ * this is valid as long as the ref is not freed.
+ * @param ref the reference ideally pointing to a branch
+ *
+ * @return 0 on success; otherwise an error code (e.g., if the
+ *  ref is no local or remote branch).
+ */
+GIT_EXTERN(int) git_branch_name(const char **out,
+		git_reference *ref);
+
+/**
  * Return the reference supporting the remote tracking branch,
  * given a local branch reference.
  *
@@ -156,6 +174,30 @@ GIT_EXTERN(int) git_branch_lookup(
 GIT_EXTERN(int) git_branch_tracking(
 		git_reference **out,
 		git_reference *branch);
+
+/**
+ * Return the name of the reference supporting the remote tracking branch,
+ * given the name of a local branch reference.
+ *
+ * @param tracking_branch_name_out The user-allocated buffer which will be
+ *     filled with the name of the reference. Pass NULL if you just want to
+ *     get the needed size of the name of the reference as the output value.
+ *
+ * @param buffer_size Size of the `out` buffer in bytes.
+ *
+ * @param repo the repository where the branches live
+ *
+ * @param canonical_branch_name name of the local branch.
+ *
+ * @return number of characters in the reference name
+ *     including the trailing NUL byte; GIT_ENOTFOUND when no remote tracking
+ *     reference exists, otherwise an error code.
+ */
+GIT_EXTERN(int) git_branch_tracking_name(
+	char *tracking_branch_name_out,
+	size_t buffer_size,
+	git_repository *repo,
+	const char *canonical_branch_name);
 
 /**
  * Determine if the current local branch is pointed at by HEAD.

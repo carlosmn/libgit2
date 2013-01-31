@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009-2012 the libgit2 contributors
+ * Copyright (C) the libgit2 contributors. All rights reserved.
  *
  * This file is part of libgit2, distributed under the GNU GPL v2 with
  * a Linking Exception. For full terms see the included COPYING file.
@@ -68,18 +68,37 @@ static void free_status(push_status *status)
 	git__free(status);
 }
 
-static int check_ref(char *ref)
+static int check_rref(char *ref)
 {
-	if (strcmp(ref, "HEAD") &&
-	    git__prefixcmp(ref, "refs/heads/") &&
-	    git__prefixcmp(ref, "refs/tags/")) {
-		giterr_set(GITERR_INVALID, "No valid reference '%s'", ref);
+	if (git__prefixcmp(ref, "refs/")) {
+		giterr_set(GITERR_INVALID, "Not a valid reference '%s'", ref);
 		return -1;
 	}
+
 	return 0;
 }
 
-static int parse_refspec(push_spec **spec, const char *str)
+static int check_lref(git_push *push, char *ref)
+{
+	/* lref must be resolvable to an existing object */
+	git_object *obj;
+	int error = git_revparse_single(&obj, push->repo, ref);
+
+	if (error) {
+		if (error == GIT_ENOTFOUND)
+			giterr_set(GITERR_REFERENCE,
+				"src refspec '%s' does not match any existing object", ref);
+		else
+			giterr_set(GITERR_INVALID, "Not a valid reference '%s'", ref);
+
+		return -1;
+	} else
+		git_object_free(obj);
+
+	return 0;
+}
+
+static int parse_refspec(git_push *push, push_spec **spec, const char *str)
 {
 	push_spec *s;
 	char *delim;
@@ -94,32 +113,34 @@ static int parse_refspec(push_spec **spec, const char *str)
 		str++;
 	}
 
-#define check(ref) \
-	if (!ref || check_ref(ref) < 0) goto on_error
-
 	delim = strchr(str, ':');
 	if (delim == NULL) {
 		s->lref = git__strdup(str);
-		check(s->lref);
-		s->rref = NULL;
+		if (!s->lref || check_lref(push, s->lref) < 0)
+			goto on_error;
 	} else {
 		if (delim - str) {
 			s->lref = git__strndup(str, delim - str);
-			check(s->lref);
-		} else
-			s->lref = NULL;
+			if (!s->lref || check_lref(push, s->lref) < 0)
+				goto on_error;
+		}
 
 		if (strlen(delim + 1)) {
 			s->rref = git__strdup(delim + 1);
-			check(s->rref);
-		} else
-			s->rref = NULL;
+			if (!s->rref || check_rref(s->rref) < 0)
+				goto on_error;
+		}
 	}
 
 	if (!s->lref && !s->rref)
 		goto on_error;
 
-#undef check
+	/* If rref is ommitted, use the same ref name as lref */
+	if (!s->rref) {
+		s->rref = git__strdup(s->lref);
+		if (!s->rref || check_rref(s->rref) < 0)
+			goto on_error;
+	}
 
 	*spec = s;
 	return 0;
@@ -133,11 +154,65 @@ int git_push_add_refspec(git_push *push, const char *refspec)
 {
 	push_spec *spec;
 
-	if (parse_refspec(&spec, refspec) < 0 ||
+	if (parse_refspec(push, &spec, refspec) < 0 ||
 	    git_vector_insert(&push->specs, spec) < 0)
 		return -1;
 
 	return 0;
+}
+
+int git_push_update_tips(git_push *push)
+{
+	git_refspec *fetch_spec = &push->remote->fetch;
+	git_buf remote_ref_name = GIT_BUF_INIT;
+	size_t i, j;
+	push_spec *push_spec;
+	git_reference *remote_ref;
+	push_status *status;
+	int error = 0;
+
+	git_vector_foreach(&push->status, i, status) {
+		/* If this ref update was successful (ok, not ng), it will have an empty message */
+		if (status->msg)
+			continue;
+
+		/* Find the corresponding remote ref */
+		if (!git_refspec_src_matches(fetch_spec, status->ref))
+			continue;
+
+		if ((error = git_refspec_transform_r(&remote_ref_name, fetch_spec, status->ref)) < 0)
+			goto on_error;
+
+		/* Find matching  push ref spec */
+		git_vector_foreach(&push->specs, j, push_spec) {
+			if (!strcmp(push_spec->rref, status->ref))
+				break;
+		}
+
+		/* Could not find the corresponding push ref spec for this push update */
+		if (j == push->specs.length)
+			continue;
+
+		/* Update the remote ref */
+		if (git_oid_iszero(&push_spec->loid)) {
+			error = git_reference_lookup(&remote_ref, push->remote->repo, git_buf_cstr(&remote_ref_name));
+
+			if (!error) {
+				if ((error = git_reference_delete(remote_ref)) < 0)
+					goto on_error;
+			} else if (error == GIT_ENOTFOUND)
+				giterr_clear();
+			else
+				goto on_error;
+		} else if ((error = git_reference_create(NULL, push->remote->repo, git_buf_cstr(&remote_ref_name), &push_spec->loid, 1)) < 0)
+			goto on_error;
+	}
+
+	error = 0;
+
+on_error:
+	git_buf_free(&remote_ref_name);
+	return error;
 }
 
 static int revwalk(git_vector *commits, git_push *push)
@@ -155,6 +230,9 @@ static int revwalk(git_vector *commits, git_push *push)
 	git_revwalk_sorting(rw, GIT_SORT_TIME);
 
 	git_vector_foreach(&push->specs, i, spec) {
+		git_otype type;
+		size_t size;
+
 		if (git_oid_iszero(&spec->loid))
 			/*
 			 * Delete reference on remote side;
@@ -165,7 +243,39 @@ static int revwalk(git_vector *commits, git_push *push)
 		if (git_oid_equal(&spec->loid, &spec->roid))
 			continue; /* up-to-date */
 
-		if (git_revwalk_push(rw, &spec->loid) < 0)
+		if (git_odb_read_header(&size, &type, push->repo->_odb, &spec->loid) < 0)
+			goto on_error;
+
+		if (type == GIT_OBJ_TAG) {
+			git_tag *tag;
+			git_object *target;
+
+			if (git_packbuilder_insert(push->pb, &spec->loid, NULL) < 0)
+				goto on_error;
+
+			if (git_tag_lookup(&tag, push->repo, &spec->loid) < 0)
+				goto on_error;
+
+			if (git_tag_peel(&target, tag) < 0) {
+				git_tag_free(tag);
+				goto on_error;
+			}
+			git_tag_free(tag);
+
+			if (git_object_type(target) == GIT_OBJ_COMMIT) {
+				if (git_revwalk_push(rw, git_object_id(target)) < 0) {
+					git_object_free(target);
+					goto on_error;
+				}
+			} else {
+				if (git_packbuilder_insert(
+					push->pb, git_object_id(target), NULL) < 0) {
+					git_object_free(target);
+					goto on_error;
+				}
+			}
+			git_object_free(target);
+		} else if (git_revwalk_push(rw, &spec->loid) < 0)
 			goto on_error;
 
 		if (!spec->force) {
@@ -282,44 +392,24 @@ static int calculate_work(git_push *push)
 	push_spec *spec;
 	unsigned int i, j;
 
+	/* Update local and remote oids*/
+
 	git_vector_foreach(&push->specs, i, spec) {
 		if (spec->lref) {
+			/* This is a create or update.  Local ref must exist. */
 			if (git_reference_name_to_id(
 					&spec->loid, push->repo, spec->lref) < 0) {
 				giterr_set(GIT_ENOTFOUND, "No such reference '%s'", spec->lref);
 				return -1;
 			}
+		}
 
-			if (!spec->rref) {
-				/*
-				 * No remote reference given; if we find a remote
-				 * reference with the same name we will update it,
-				 * otherwise a new reference will be created.
-				 */
-				git_vector_foreach(&push->remote->refs, j, head) {
-					if (!strcmp(spec->lref, head->name)) {
-						/*
-						 * Update remote reference
-						 */
-						git_oid_cpy(&spec->roid, &head->oid);
-
-						break;
-					}
-				}
-			} else {
-				/*
-				 * Remote reference given; update the given
-				 * reference or create it.
-				 */
-				git_vector_foreach(&push->remote->refs, j, head) {
-					if (!strcmp(spec->rref, head->name)) {
-						/*
-						 * Update remote reference
-						 */
-						git_oid_cpy(&spec->roid, &head->oid);
-
-						break;
-					}
+		if (spec->rref) {
+			/* Remote ref may or may not (e.g. during create) already exist. */
+			git_vector_foreach(&push->remote->refs, j, head) {
+				if (!strcmp(spec->rref, head->name)) {
+					git_oid_cpy(&spec->roid, &head->oid);
+					break;
 				}
 			}
 		}
@@ -332,6 +422,12 @@ static int do_push(git_push *push)
 {
 	int error;
 	git_transport *transport = push->remote->transport;
+
+	if (!transport->push) {
+		giterr_set(GITERR_NET, "Remote transport doesn't support push");
+		error = -1;
+		goto on_error;
+	}
 
 	/*
 	 * A pack-file MUST be sent if either create or update command

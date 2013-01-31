@@ -54,9 +54,7 @@ void test_reset_hard__resetting_reverts_modified_files(void)
 	static const char *after[4] = {
 		"current_file\n",
 		"modified_file\n",
-		/* wrong value because reset is still slightly incorrect */
-		"staged_new_file\n",
-		/* right value: NULL, */
+		NULL,
 		"staged_changes_modified_file\n"
 	};
 	const char *wd = git_repository_workdir(repo);
@@ -113,10 +111,10 @@ void test_reset_hard__cleans_up_merge(void)
 	cl_git_mkfile(git_buf_cstr(&merge_head_path), "beefbeefbeefbeefbeefbeefbeefbeefbeefbeef\n");
 
 	cl_git_pass(git_buf_joinpath(&merge_msg_path, git_repository_path(repo), "MERGE_MSG"));
-	cl_git_mkfile(git_buf_cstr(&merge_head_path), "Merge commit 0017bd4ab1ec30440b17bae1680cff124ab5f1f6\n");
+	cl_git_mkfile(git_buf_cstr(&merge_msg_path), "Merge commit 0017bd4ab1ec30440b17bae1680cff124ab5f1f6\n");
 
-	cl_git_pass(git_buf_joinpath(&merge_msg_path, git_repository_path(repo), "MERGE_MODE"));
-	cl_git_mkfile(git_buf_cstr(&merge_head_path), "");
+	cl_git_pass(git_buf_joinpath(&merge_mode_path, git_repository_path(repo), "MERGE_MODE"));
+	cl_git_mkfile(git_buf_cstr(&merge_mode_path), "");
 
 	cl_git_pass(git_buf_joinpath(&orig_head_path, git_repository_path(repo), "ORIG_HEAD"));
 	cl_git_mkfile(git_buf_cstr(&orig_head_path), "0017bd4ab1ec30440b17bae1680cff124ab5f1f6");

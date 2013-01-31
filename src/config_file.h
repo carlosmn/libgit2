@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2012 the libgit2 contributors
+ * Copyright (C) the libgit2 contributors. All rights reserved.
  *
  * This file is part of libgit2, distributed under the GNU GPL v2 with
  * a Linking Exception. For full terms see the included COPYING file.
@@ -53,6 +53,8 @@ GIT_INLINE(int) git_config_file_foreach_match(
 {
 	return cfg->foreach(cfg, regexp, fn, data);
 }
+
+extern int git_config_file_normalize_section(char *start, char *end);
 
 #endif
 

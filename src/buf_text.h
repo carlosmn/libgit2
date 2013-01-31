@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009-2012 the libgit2 contributors
+ * Copyright (C) the libgit2 contributors. All rights reserved.
  *
  * This file is part of libgit2, distributed under the GNU GPL v2 with
  * a Linking Exception. For full terms see the included COPYING file.
@@ -69,6 +69,14 @@ extern int git_buf_text_common_prefix(git_buf *buf, const git_strarray *strs);
  * @return true if buffer looks like non-text data
  */
 extern bool git_buf_text_is_binary(const git_buf *buf);
+
+/**
+ * Check quickly if buffer contains a NUL byte
+ *
+ * @param buf Buffer to check
+ * @return true if buffer contains a NUL byte
+ */
+extern bool git_buf_text_contains_nul(const git_buf *buf);
 
 /**
  * Check if a buffer begins with a UTF BOM

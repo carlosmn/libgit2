@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2009-2012 the libgit2 contributors
+ * Copyright (C) the libgit2 contributors. All rights reserved.
  *
  * This file is part of libgit2, distributed under the GNU GPL v2 with
  * a Linking Exception. For full terms see the included COPYING file.
@@ -261,9 +261,14 @@ extern int git_path_direach(
 	void *state);
 
 /**
- * Sort function to order two paths.
+ * Sort function to order two paths
  */
 extern int git_path_cmp(
+	const char *name1, size_t len1, int isdir1,
+	const char *name2, size_t len2, int isdir2);
+
+/** Path sort function that is case insensitive */
+extern int git_path_icmp(
 	const char *name1, size_t len1, int isdir1,
 	const char *name2, size_t len2, int isdir2);
 
