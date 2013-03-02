@@ -59,6 +59,13 @@ struct git_reference {
 	} target;
 };
 
+typedef struct git_reference_iter {
+	git_strmap *h;
+	unsigned int flags;
+	unsigned int loose :1;
+	khiter_t k;
+} git_reference_iter;
+
 typedef struct {
 	git_strmap *packfile;
 	time_t packfile_time;
