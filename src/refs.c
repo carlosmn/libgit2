@@ -599,61 +599,6 @@ int git_reference_foreach(
 	return git_refdb_foreach(refdb, list_flags, callback, payload);
 }
 
-int git_reference_iterator(git_reference_iter **out, git_repository *repo, unsigned int flags)
-{
-	git_reference_iter *iter;
-
-	iter = git__calloc(1, sizeof(git_reference_iter));
-	GITERR_CHECK_ALLOC(iter);
-
-	iter->h = repo->references.packfile;
-	iter->k = kh_begin(repo->references.packfile);
-	iter->flags = flags;
-
-	*out = iter;
-
-	return 0;
-}
-
-static int iter_packed(const char **out, git_reference_iter *iter)
-{
-	/* Move forward to the next entry */
-	while (!kh_exist(iter->h, iter->k)) {
-		iter->k++;
-		if (iter->k == kh_end(iter->h)) {
-			return GIT_ITEROVER;
-		}
-	}
-
-	*out = kh_key(iter->h, iter->k);
-	iter->k++;
-
-	return 0;
-}
-
-static int iter_loose(const char **out, git_reference_iter *iter)
-{
-	return GIT_ITEROVER;
-}
-
-int git_reference_next(const char **out, git_reference_iter *iter)
-{
-	int error;
-
-	/* First round of checks to make sure where we are */
-	if (!iter->loose && iter->k == kh_end(iter->h)) {
-		iter->loose = 1;
-	}
-
-	if (!iter->loose) {
-		error = iter_packed(out, iter);
-		/* too ugly? */
-		return error == GIT_ITEROVER ? iter_loose(out, iter) : error;
-	} else {
-		return iter_loose(out, iter);
-	}
-}
-
 static int cb__reflist_add(const char *ref, void *data)
 {
 	return git_vector_insert((git_vector *)data, git__strdup(ref));

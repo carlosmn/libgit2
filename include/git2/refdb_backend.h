@@ -72,6 +72,20 @@ struct git_refdb_backend {
 		git_reference_foreach_cb callback,
 		void *payload);
 
+	/**
+	 * Allocate an iterator object for the backend
+	 */
+	int (*iterator)(
+		git_reference_iter **iter,
+		struct git_refdb_backend *backend);
+
+	/**
+	 * Return the current value and advance the iterator.
+	 */
+	int (*next)(
+		const char **name,
+		git_reference_iter *iter);
+
 	/*
 	 * Writes the given reference to the refdb.  A refdb implementation
 	 * must provide this function.
