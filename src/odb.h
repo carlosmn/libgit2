@@ -96,4 +96,10 @@ int git_odb__read_header_or_object(
 	git_odb_object **out, size_t *len_p, git_otype *type_p,
 	git_odb *db, const git_oid *id);
 
+/*
+ * Read the delta's raw data, without trying to apply it.
+ */
+int git_odb__read_delta(void **delta, size_t *len, struct git_odb *db, git_oid *id);
+
+
 #endif

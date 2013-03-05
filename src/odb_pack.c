@@ -527,6 +527,39 @@ static int pack_backend__writepack(struct git_odb_writepack **out,
 	return 0;
 }
 
+static int pack_backend__read_delta(void **delta, size_t *len, git_odb_backend *_backend, git_oid *id)
+{
+	struct pack_backend *backend = (struct pack_backend *)_backend;
+	struct git_pack_entry e;
+	git_mwindow *w;
+	git_rawobj obj;
+	git_otype type;
+	git_off_t pos;
+	size_t size;
+	int error;
+
+	if (pack_entry_find(&e, backend, id) < 0)
+		return GIT_ENOTFOUND;
+
+	pos = e.offset;
+	if (git_packfile_unpack_header(&size, &type, &e.p->mwf, &w, &pos))
+		return -1;
+
+	git_mwindow_close(&w);
+	if (type != GIT_OBJ_OFS_DELTA && type != GIT_OBJ_REF_DELTA)
+		return -1;
+
+	error = packfile_unpack_compressed(&obj, e.p, &w, &pos, size, type);
+	git_mwindow_close(&w);
+	if (error < 0)
+		return -1;
+
+	*delta = obj.data;
+	*len = obj.len;
+
+	return 0;
+}
+
 static void pack_backend__free(git_odb_backend *_backend)
 {
 	struct pack_backend *backend;
@@ -615,6 +648,7 @@ int git_odb_backend_pack(git_odb_backend **backend_out, const char *objects_dir)
 	backend->parent.refresh = &pack_backend__refresh;
 	backend->parent.foreach = &pack_backend__foreach;
 	backend->parent.writepack = &pack_backend__writepack;
+	backend->parent.read_delta = &pack_backend__read_delta;
 	backend->parent.free = &pack_backend__free;
 
 	*backend_out = (git_odb_backend *)backend;

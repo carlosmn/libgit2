@@ -102,6 +102,12 @@ struct git_odb_backend {
 			git_transfer_progress_callback progress_cb,
 			void *progress_payload);
 
+	int (*read_delta)(
+			void **delta,
+			size_t *len,
+			struct git_odb_backend *,
+			git_oid *id);
+
 	void (* free)(struct git_odb_backend *);
 };
 
