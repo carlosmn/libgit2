@@ -28,7 +28,7 @@ static void ensure_repository_discover(const char *start_path,
                                        const char *expected_path)
 {
 	char found_path[GIT_PATH_MAX];
-	cl_git_pass(git_repository_discover(found_path, sizeof(found_path), start_path, 0, ceiling_dirs));
+	cl_assert(git_repository_discover(found_path, sizeof(found_path), start_path, 0, ceiling_dirs) != -1);
 	//across_fs is always 0 as we can't automate the filesystem change tests
 	cl_assert_equal_s(found_path, expected_path);
 }
@@ -85,12 +85,12 @@ void test_repo_discover__0(void)
 	cl_assert_equal_i(GIT_ENOTFOUND, git_repository_discover(repository_path, sizeof(repository_path), DISCOVER_FOLDER, 0, ceiling_dirs));
 
 	cl_git_pass(git_repository_init(&repo, DISCOVER_FOLDER, 1));
-	cl_git_pass(git_repository_discover(repository_path, sizeof(repository_path), DISCOVER_FOLDER, 0, ceiling_dirs));
+	cl_assert(git_repository_discover(repository_path, sizeof(repository_path), DISCOVER_FOLDER, 0, ceiling_dirs) != -1);
 	git_repository_free(repo);
 
 	cl_git_pass(git_repository_init(&repo, SUB_REPOSITORY_FOLDER, 0));
 	cl_git_pass(git_futils_mkdir_r(SUB_REPOSITORY_FOLDER_SUB_SUB_SUB, NULL, mode));
-	cl_git_pass(git_repository_discover(sub_repository_path, sizeof(sub_repository_path), SUB_REPOSITORY_FOLDER, 0, ceiling_dirs));
+	cl_assert(git_repository_discover(sub_repository_path, sizeof(sub_repository_path), SUB_REPOSITORY_FOLDER, 0, ceiling_dirs) != -1);
 
 	cl_git_pass(git_futils_mkdir_r(SUB_REPOSITORY_FOLDER_SUB_SUB_SUB, NULL, mode));
 	ensure_repository_discover(SUB_REPOSITORY_FOLDER_SUB, ceiling_dirs, sub_repository_path);
@@ -124,7 +124,7 @@ void test_repo_discover__0(void)
 
 	//this must pass as ceiling_directories cannot predent the current
 	//working directory to be checked
-	cl_git_pass(git_repository_discover(found_path, sizeof(found_path), SUB_REPOSITORY_FOLDER, 0, ceiling_dirs));
+	cl_assert(git_repository_discover(found_path, sizeof(found_path), SUB_REPOSITORY_FOLDER, 0, ceiling_dirs) != -1);
 	cl_assert_equal_i(GIT_ENOTFOUND, git_repository_discover(found_path, sizeof(found_path), SUB_REPOSITORY_FOLDER_SUB, 0, ceiling_dirs));
 	cl_assert_equal_i(GIT_ENOTFOUND, git_repository_discover(found_path, sizeof(found_path), SUB_REPOSITORY_FOLDER_SUB_SUB, 0, ceiling_dirs));
 	cl_assert_equal_i(GIT_ENOTFOUND, git_repository_discover(found_path, sizeof(found_path), SUB_REPOSITORY_FOLDER_SUB_SUB_SUB, 0, ceiling_dirs));

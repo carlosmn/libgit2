@@ -431,7 +431,7 @@ int git_repository_discover(
 {
 	git_buf path = GIT_BUF_INIT;
 	uint32_t flags = across_fs ? GIT_REPOSITORY_OPEN_CROSS_FS : 0;
-	int error;
+	int error, ret;
 
 	assert(start_path && repository_path && size > 0);
 
@@ -440,17 +440,14 @@ int git_repository_discover(
 	if ((error = find_repo(&path, NULL, start_path, flags, ceiling_dirs)) < 0)
 		return error != GIT_ENOTFOUND ? -1 : error;
 
-	if (size < (size_t)(path.size + 1)) {
-		giterr_set(GITERR_REPOSITORY,
-			"The given buffer is too small to store the discovered path");
-		git_buf_free(&path);
-		return -1;
-	}
-
 	/* success: we discovered a repository */
-	git_buf_copy_cstr(repository_path, size, &path);
+	if (repository_path)
+		git_buf_copy_cstr(repository_path, size, &path);
+
+	ret = git_buf_len(&path) + 1;
 	git_buf_free(&path);
-	return 0;
+
+	return ret;
 }
 
 static int load_config(

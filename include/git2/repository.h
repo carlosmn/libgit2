@@ -58,10 +58,14 @@ GIT_EXTERN(int) git_repository_wrap_odb(git_repository **out, git_odb *odb);
  * The method will automatically detect if the repository is bare
  * (if there is a repository).
  *
- * @param path_out The user allocated buffer which will
- * contain the found path.
+ * This function will write up to `path_size` bytes into the buffer
+ * and return the length (including the NUL terminator) of the
+ * discovered path.
  *
- * @param path_size repository_path size
+ * @param path_out The user allocated buffer which will contain the
+ * found path. Use NULL if you only want to find out the size.
+ *
+ * @param path_size The size of the path_out buffer
  *
  * @param start_path The base path where the lookup starts.
  *
@@ -74,7 +78,8 @@ GIT_EXTERN(int) git_repository_wrap_odb(git_repository **out, git_odb *odb);
  * start_path no matter start_path appears in ceiling_dirs ceiling_dirs
  * might be NULL (which is equivalent to an empty string)
  *
- * @return 0 or an error code
+ * @return The length of the discovered path, including the NUL
+ * terminator; or -1 if there's an error
  */
 GIT_EXTERN(int) git_repository_discover(
 		char *path_out,
