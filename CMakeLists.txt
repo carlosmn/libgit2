@@ -14,6 +14,8 @@
 PROJECT(libgit2 C)
 CMAKE_MINIMUM_REQUIRED(VERSION 2.6)
 
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake/Modules/")
+
 # Build options
 #
 OPTION( SONAME				"Set the (SO)VERSION of the target"		ON  )
@@ -136,6 +138,13 @@ ELSE()
 	INCLUDE_DIRECTORIES(deps/zlib)
 	ADD_DEFINITIONS(-DNO_VIZ -DSTDC -DNO_GZIP)
 	FILE(GLOB SRC_ZLIB deps/zlib/*.c)
+ENDIF()
+
+# Link with sqlite
+FIND_PACKAGE(Sqlite3)
+IF (SQLITE3_FOUND)
+	INCLUDE_DIRECTORIES(${SQLITE3_INCLUDE_DIRS})
+	LINK_LIBRARIES(${SQLITE3_LIBRARIES})
 ENDIF()
 
 # Platform specific compilation flags
