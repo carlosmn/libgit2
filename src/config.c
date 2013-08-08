@@ -327,7 +327,7 @@ int git_config_backend_foreach_match(
 	int (*fn)(const git_config_entry *, void *),
 	void *data)
 {
-	git_config_entry entry;
+	git_config_entry *entry;
 	git_config_iterator* iter;
 	regex_t regex;
 	int result = 0;
@@ -347,11 +347,11 @@ int git_config_backend_foreach_match(
 
 	while(!(iter->next(&entry, iter) < 0)) {
 		/* skip non-matching keys if regexp was provided */
-		if (regexp && regexec(&regex, entry.name, 0, NULL, 0) != 0)
+		if (regexp && regexec(&regex, entry->name, 0, NULL, 0) != 0)
 			continue;
 
 		/* abort iterator on non-zero return value */
-		if (fn(&entry, data)) {
+		if (fn(entry, data)) {
 			giterr_clear();
 			result = GIT_EUSER;
 			goto cleanup;
@@ -582,6 +582,23 @@ int git_config_get_multivar_foreach(
 	git_config_backend *file;
 	int ret = GIT_ENOTFOUND, err;
 	size_t i;
+	git_config_iterator *iter;
+	git_config_entry *entry;
+
+	if ((err = git_config_get_multivar(&iter, cfg, name, regexp)) < 0)
+		return err;
+
+	while ((err = iter->next(&entry, iter)) == 0) {
+		if(cb(entry, payload)) {
+			iter->free(iter);
+			return GIT_EUSER;
+		}
+	}
+
+	if (err == GIT_ITEROVER)
+		err = 0;
+
+	return err;
 
 	/*
 	 * This loop runs the "wrong" way 'round because we need to
@@ -615,7 +632,7 @@ static int find_next_backend(size_t *out, const git_config *cfg, size_t i)
 {
 	file_internal *internal;
 
-	for (; i > 0; --i) {
+	for (--i; i > 0; --i) {
 		internal = git_vector_get(&cfg->files, i - 1);
 		if (!internal || !internal->file)
 			continue;
@@ -627,7 +644,7 @@ static int find_next_backend(size_t *out, const git_config *cfg, size_t i)
 	return -1;
 }
 
-static int multivar_iter_next_empty(git_config_entry *entry, git_config_iterator *_iter)
+static int multivar_iter_next_empty(git_config_entry **entry, git_config_iterator *_iter)
 {
 	GIT_UNUSED(entry);
 	GIT_UNUSED(_iter);
@@ -635,20 +652,21 @@ static int multivar_iter_next_empty(git_config_entry *entry, git_config_iterator
 	return GIT_ITEROVER;
 }
 
-static int multivar_iter_next(git_config_entry *entry, git_config_iterator *_iter)
+static int multivar_iter_next(git_config_entry **entry, git_config_iterator *_iter)
 {
 	multivar_iter *iter = (multivar_iter *) _iter;
 	git_config_iterator *current = iter->current;
 	file_internal *internal;
 	git_config_backend *backend;
 	size_t i;
-	int error;
+	int error = 0;
 
 	if (current != NULL &&
-	    (error = current->next(entry, current)) == 0)
+	    (error = current->next(entry, current)) == 0) {
 		return 0;
+	}
 
-	if (error != GIT_ITEROVER)
+	if (error < 0 && error != GIT_ITEROVER)
 		return error;
 
 	do {
