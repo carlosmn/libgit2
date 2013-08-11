@@ -23,26 +23,7 @@ install:
 
 # Run the Build script and tests. At the end, re-run the push tests over ssh as well.
 script:
- - sudo start ssh
- - mkdir $HOME/_temp
- - git init --bare $HOME/_temp/test.git
- - git daemon --listen=localhost --export-all --enable=receive-pack --base-path=$HOME/_temp $HOME/_temp 2>/dev/null &
- - export GITTEST_REMOTE_URL="git://localhost/test.git"
- - mkdir _build
- - cd _build
- - cmake .. -DCMAKE_INSTALL_PREFIX=../_install $OPTIONS
- - cmake --build . --target install
- - ctest -V .
- - killall git-daemon
- - ssh-keygen -t rsa -f ~/.ssh/id_rsa -N "" -q
- - cat ~/.ssh/id_rsa.pub >>~/.ssh/authorized_keys
- - ssh-keyscan -t rsa localhost >>~/.ssh/known_hosts
- - export GITTEST_REMOTE_URL="ssh://$USER@localhost/$HOME/_temp/test.git"
- - export GITTEST_REMOTE_SSH_KEY="$HOME/.ssh/id_rsa"
- - export GITTEST_REMOTE_SSH_PUBKEY="$HOME/.ssh/id_rsa.pub"
- - export GITTEST_REMOTE_SSH_PASSPHRASE=""
- - ./libgit2_clar -sonline::push
- - exit $?
+ - script/travis.sh
 
 # Run Tests
 after_success:
