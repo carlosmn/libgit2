@@ -48,6 +48,9 @@ struct git_indexer_stream {
 	void *progress_payload;
 	char objbuf[8*1024];
 
+	/* Needed to look up objects which we want to inject to fix a thin pack */
+	git_odb *odb;
+
 	/* Fields for calculating the packfile trailer (hash of everything before it) */
 	char inbuf[GIT_OID_RAWSZ];
 	int inbuf_len;
@@ -114,6 +117,7 @@ static int objects_cmp(const void *a, const void *b)
 int git_indexer_stream_new(
 		git_indexer_stream **out,
 		const char *prefix,
+		git_odb *odb,
 		git_transfer_progress_callback progress_cb,
 		void *progress_payload)
 {
@@ -124,6 +128,7 @@ int git_indexer_stream_new(
 
 	idx = git__calloc(1, sizeof(git_indexer_stream));
 	GITERR_CHECK_ALLOC(idx);
+	idx->odb = odb;
 	idx->progress_cb = progress_cb;
 	idx->progress_payload = progress_payload;
 	git_hash_ctx_init(&idx->trailer);
@@ -590,11 +595,75 @@ static int index_path_stream(git_buf *path, git_indexer_stream *idx, const char 
 	return git_buf_oom(path) ? -1 : 0;
 }
 
+static int inject_object(git_indexer_stream *idx, git_oid *id)
+{
+	git_odb_object *obj;
+	int error;
+
+	if (git_odb_read(&obj, idx->odb, id) < 0)
+		return -1;
+
+	error = git_filebuf_write(&idx->pack_file, git_odb_object_data(obj), git_odb_object_size(obj));
+	git_hash_update(&idx->trailer, git_odb_object_data(obj), git_odb_object_size(obj));
+
+	git_odb_object_free(obj);
+
+	return error;
+}
+
+static int fix_thin_pack(git_indexer_stream *idx)
+{
+	int error;
+	unsigned int i;
+	struct delta_info *delta;
+
+	if (idx->odb == NULL) {
+		giterr_set(GITERR_INDEXER, "cannot fix a thin pack without an ODB");
+		return -1;
+	}
+
+	git_vector_foreach(&idx->deltas, i, delta) {
+		size_t size;
+		git_otype type;
+		git_mwindow *w = NULL;
+		git_off_t curpos = delta->delta_off;
+		unsigned char *base_info;
+		unsigned int left = 0;
+		git_oid base;
+
+		error = git_packfile_unpack_header(&size, &type, &idx->pack->mwf, &w, &curpos);
+		git_mwindow_close(&w);
+		if (error < 0)
+			return error;
+
+		if (type != GIT_OBJ_REF_DELTA) {
+			giterr_set(GITERR_INDEXER, "delta with missing base is not REF_DELTA");
+			return -1;
+		}
+
+		/* curpos now points to the base information, which is an OID */
+		base_info = git_mwindow_open(&idx->pack->mwf, &w, curpos, GIT_OID_RAWSZ, &left);
+		if (base_info == NULL) {
+			giterr_set(GITERR_INDEXER, "failed to map delta information");
+			return -1;
+		}
+
+		git_oid_fromraw(&base, base_info);
+		git_mwindow_close(&w);
+
+		if (inject_object(idx, &base) < 0)
+			return -1;
+
+	}
+
+	return 0;
+}
+
 static int resolve_deltas(git_indexer_stream *idx, git_transfer_progress *stats)
 {
 	unsigned int i;
 	struct delta_info *delta;
-	int progressed = 0;
+	int progressed = 0, should_fix = 0;
 
 	while (idx->deltas.length > 0) {
 		progressed = 0;
@@ -622,10 +691,9 @@ static int resolve_deltas(git_indexer_stream *idx, git_transfer_progress *stats)
 			i--;
 		}
 
-		if (!progressed) {
-			giterr_set(GITERR_INDEXER, "the packfile is missing bases");
-			return -1;
-		}
+		/* FIXME: we should rewind the file so we overwrite the old hash */
+		if (!progressed && (fix_thin_pack(idx) < 0))
+		    return -1;
 	}
 
 	return 0;
