@@ -184,3 +184,31 @@ void test_online_fetch__ls_disconnected(void)
 
 	git_remote_free(remote);
 }
+
+static int acquire_bad_creds(git_cred **cred, const char *url, const char *uname, unsigned int types, void *payload)
+{
+	return git_cred_ssh_key_new(cred, "foo", "./ssh/bar.pub", "./ssh/bar", "lol");
+}
+
+void test_online_fetch__wrong_credential_type(void)
+{
+	git_remote *remote;
+	const char *remote_url = cl_getenv("GITTEST_REMOTE_URL");
+	git_remote_callbacks cbs = GIT_REMOTE_CALLBACKS_INIT;
+
+	cbs.credentials = acquire_bad_creds;
+
+	if (!remote_url) {
+		printf("GITTEST_REMOTE_URL unset; skipping wrong credential type test\n");
+		return;
+	}
+
+	
+	cl_git_pass(git_remote_create(&remote, _repo, "test",
+				"http://github.com/libgit2/TestGitRepository.git"));
+
+	cl_git_pass(git_remote_set_callbacks(remote, &cbs));
+	
+
+	cl_git_pass(git_remote_connect(remote, GIT_DIRECTION_FETCH));
+}
