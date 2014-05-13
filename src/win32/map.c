@@ -33,6 +33,7 @@ int p_mmap(git_map *out, size_t len, int prot, int flags, int fd, git_off_t offs
 	DWORD off_hi = 0;
 	git_off_t page_start;
 	git_off_t page_offset;
+	git_off_t total_len;
 
 	GIT_MMAP_VALIDATE(out, len, prot, flags);
 
@@ -65,7 +66,10 @@ int p_mmap(git_map *out, size_t len, int prot, int flags, int fd, git_off_t offs
 		return -1;
 	}
 
-	out->fmh = CreateFileMapping(fh, NULL, fmap_prot, 0, 0, NULL);
+	total_len = offset + len;
+	off_low = (DWORD)(total_len);
+	off_hi = (DWORD)(total_len >> 32);
+	out->fmh = CreateFileMapping(fh, NULL, fmap_prot, off_hi, off_low, NULL);
 	if (!out->fmh || out->fmh == INVALID_HANDLE_VALUE) {
 		giterr_set(GITERR_OS, "Failed to mmap. Invalid handle value");
 		out->fmh = NULL;

@@ -429,6 +429,23 @@ static void hash_partially(git_indexer *idx, const uint8_t *data, size_t size)
 	idx->inbuf_len += size - to_expell;
 }
 
+static int append_to_pack(git_indexer *idx, const void *data, size_t size)
+{
+	git_off_t current_size = idx->pack->mwf.size;
+	git_file fd = idx->pack_file.fd;
+	git_map map;
+	int error;
+
+	if ((error = p_mmap(&map, size, GIT_PROT_READ | GIT_PROT_WRITE, GIT_MAP_SHARED, fd, current_size)) < 0)
+		return error;
+
+	printf("data %p\n", map.data);
+	memcpy(map.data, data, size);
+	p_munmap(&map);
+
+	return 0;
+}
+
 int git_indexer_append(git_indexer *idx, const void *data, size_t size, git_transfer_progress *stats)
 {
 	int error = -1;
@@ -439,11 +456,6 @@ int git_indexer_append(git_indexer *idx, const void *data, size_t size, git_tran
 	assert(idx && data && stats);
 
 	processed = stats->indexed_objects;
-
-	if ((error = git_filebuf_write(&idx->pack_file, data, size)) < 0)
-		return error;
-
-	hash_partially(idx, data, (int)size);
 
 	/* Make sure we set the new size of the pack */
 	if (idx->opened_pack) {
@@ -456,6 +468,11 @@ int git_indexer_append(git_indexer *idx, const void *data, size_t size, git_tran
 		if ((error = git_mwindow_file_register(&idx->pack->mwf)) < 0)
 			return error;
 	}
+
+	if ((error = append_to_pack(idx, data, size)) < 0)
+		return error;
+
+	hash_partially(idx, data, (int)size);
 
 	if (!idx->parsed_header) {
 		unsigned int total_objects;
@@ -616,17 +633,10 @@ static int index_path(git_buf *path, git_indexer *idx, const char *suffix)
  * Rewind the packfile by the trailer, as we might need to fix the
  * packfile by injecting objects at the tail and must overwrite it.
  */
-static git_off_t seek_back_trailer(git_indexer *idx)
+static void seek_back_trailer(git_indexer *idx)
 {
-	git_off_t off;
-
-	if ((off = p_lseek(idx->pack_file.fd, -GIT_OID_RAWSZ, SEEK_CUR)) < 0)
-		return -1;
-
 	idx->pack->mwf.size -= GIT_OID_RAWSZ;
 	git_mwindow_free_all(&idx->pack->mwf);
-
-	return off;
 }
 
 static int inject_object(git_indexer *idx, git_oid *id)
@@ -642,7 +652,8 @@ static int inject_object(git_indexer *idx, git_oid *id)
 	size_t len, hdr_len;
 	int error;
 
-	entry_start = seek_back_trailer(idx);
+	seek_back_trailer(idx);
+	entry_start = idx->pack->mwf.size;
 
 	if (git_odb_read(&obj, idx->odb, id) < 0)
 		return -1;
@@ -657,7 +668,9 @@ static int inject_object(git_indexer *idx, git_oid *id)
 
 	/* Write out the object header */
 	hdr_len = git_packfile__object_header(hdr, len, git_odb_object_type(obj));
-	git_filebuf_write(&idx->pack_file, hdr, hdr_len);
+	if ((error = append_to_pack(idx, hdr, hdr_len)) < 0)
+		goto cleanup;
+
 	idx->pack->mwf.size += hdr_len;
 	entry->crc = crc32(entry->crc, hdr, (uInt)hdr_len);
 
@@ -665,13 +678,16 @@ static int inject_object(git_indexer *idx, git_oid *id)
 		goto cleanup;
 
 	/* And then the compressed object */
-	git_filebuf_write(&idx->pack_file, buf.ptr, buf.size);
+	if ((error = append_to_pack(idx, buf.ptr, buf.size)) < 0)
+		goto cleanup;
+
 	idx->pack->mwf.size += buf.size;
 	entry->crc = htonl(crc32(entry->crc, (unsigned char *)buf.ptr, (uInt)buf.size));
 	git_buf_free(&buf);
 
 	/* Write a fake trailer so the pack functions play ball */
-	if ((error = git_filebuf_write(&idx->pack_file, &foo, GIT_OID_RAWSZ)) < 0)
+
+	if ((error = append_to_pack(idx, &foo, GIT_OID_RAWSZ)) < 0)
 		goto cleanup;
 
 	idx->pack->mwf.size += GIT_OID_RAWSZ;
