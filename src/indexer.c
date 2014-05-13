@@ -34,7 +34,7 @@ struct git_indexer {
 		have_delta :1;
 	struct git_pack_header hdr;
 	struct git_pack_file *pack;
-	git_filebuf pack_file;
+	git_file pack_fd;
 	unsigned int mode;
 	git_off_t off;
 	git_off_t entry_start;
@@ -74,7 +74,7 @@ static int open_pack(struct git_pack_file **out, const char *filename)
 	if (git_packfile_alloc(&pack, filename) < 0)
 		return -1;
 
-	if ((pack->mwf.fd = p_open(pack->pack_name, O_RDONLY)) < 0) {
+	if ((pack->mwf.fd = p_open(pack->pack_name, O_RDWR)) < 0) {
 		giterr_set(GITERR_OS, "Failed to open packfile.");
 		git_packfile_free(pack);
 		return -1;
@@ -87,13 +87,15 @@ static int open_pack(struct git_pack_file **out, const char *filename)
 static int parse_header(struct git_pack_header *hdr, struct git_pack_file *pack)
 {
 	int error;
+	git_map map;
 
-	/* Verify we recognize this pack file format. */
-	if ((error = p_read(pack->mwf.fd, hdr, sizeof(*hdr))) < 0) {
-		giterr_set(GITERR_OS, "Failed to read in pack header");
+	if ((error = p_mmap(&map, sizeof(*hdr), GIT_PROT_READ, GIT_MAP_SHARED, pack->mwf.fd, 0)) < 0)
 		return error;
-	}
 
+	memcpy(hdr, map.data, sizeof(*hdr));
+	p_munmap(&map);
+	
+	/* Verify we recognize this pack file format. */
 	if (hdr->hdr_signature != ntohl(PACK_SIGNATURE)) {
 		giterr_set(GITERR_INDEXER, "Wrong pack signature");
 		return -1;
@@ -124,7 +126,7 @@ int git_indexer_new(
 		void *progress_payload)
 {
 	git_indexer *idx;
-	git_buf path = GIT_BUF_INIT;
+	git_buf path = GIT_BUF_INIT, tmp_path = GIT_BUF_INIT;
 	static const char suff[] = "/pack";
 	int error;
 
@@ -140,19 +142,27 @@ int git_indexer_new(
 	if (error < 0)
 		goto cleanup;
 
-	error = git_filebuf_open(&idx->pack_file, path.ptr,
-		GIT_FILEBUF_TEMPORARY | GIT_FILEBUF_DO_NOT_BUFFER,
-		idx->mode);
-	git_buf_free(&path);
-	if (error < 0)
+	idx->pack_fd = git_futils_mktmp(&tmp_path, git_buf_cstr(&path), idx->mode);
+	if (idx->pack_fd < 0) {
+		git_buf_free(&tmp_path);
+		goto cleanup;
+	}
+
+	if (git_packfile_alloc(&idx->pack, git_buf_cstr(&tmp_path)) < 0)
+		goto cleanup;
+
+	idx->pack->mwf.fd = idx->pack_fd;
+	if ((error = git_mwindow_file_register(&idx->pack->mwf)) < 0)
 		goto cleanup;
 
 	*out = idx;
 	return 0;
 
 cleanup:
+	if (git_buf_cstr(&tmp_path))
+		p_unlink(git_buf_cstr(&tmp_path));
 	git_buf_free(&path);
-	git_filebuf_cleanup(&idx->pack_file);
+	git_buf_free(&tmp_path);
 	git__free(idx);
 	return -1;
 }
@@ -432,12 +442,18 @@ static void hash_partially(git_indexer *idx, const uint8_t *data, size_t size)
 static int append_to_pack(git_indexer *idx, const void *data, size_t size)
 {
 	git_off_t current_size = idx->pack->mwf.size;
-	git_file fd = idx->pack_file.fd;
+	git_file fd = idx->pack_fd;
 	git_map map;
 	int error;
 
-	if ((error = p_mmap(&map, size, GIT_PROT_READ | GIT_PROT_WRITE, GIT_MAP_SHARED, fd, current_size)) < 0)
+	/* the offset needs to be at the beginning of the a page boundary */
+	printf("current_size %zu\n", current_size);
+	p_lseek(fd, current_size + size - 1, SEEK_SET);
+	p_write(fd, "", 1);
+	if ((error = p_mmap(&map, size, GIT_PROT_WRITE, GIT_MAP_SHARED, fd, current_size)) < 0) {
+		printf("mmap: %s\n", giterr_last()->message);
 		return error;
+	}
 
 	printf("data %p\n", map.data);
 	memcpy(map.data, data, size);
@@ -457,20 +473,11 @@ int git_indexer_append(git_indexer *idx, const void *data, size_t size, git_tran
 
 	processed = stats->indexed_objects;
 
-	/* Make sure we set the new size of the pack */
-	if (idx->opened_pack) {
-		idx->pack->mwf.size += size;
-	} else {
-		if ((error = open_pack(&idx->pack, idx->pack_file.path_lock)) < 0)
-			return error;
-		idx->opened_pack = 1;
-		mwf = &idx->pack->mwf;
-		if ((error = git_mwindow_file_register(&idx->pack->mwf)) < 0)
-			return error;
-	}
-
 	if ((error = append_to_pack(idx, data, size)) < 0)
 		return error;
+
+	/* Make sure we set the new size of the pack */
+	idx->pack->mwf.size += size;
 
 	hash_partially(idx, data, (int)size);
 
@@ -836,6 +843,7 @@ static int update_header_and_rehash(git_indexer *idx, git_transfer_progress *sta
 	git_mwindow_free_all(mwf);
 
 	/* Update the header to include the numer of local objects we injected */
+	/*
 	idx->hdr.hdr_entries = htonl(stats->total_objects + stats->local_objects);
 	if (p_lseek(idx->pack_file.fd, 0, SEEK_SET) < 0) {
 		giterr_set(GITERR_OS, "failed to seek to the beginning of the pack");
@@ -846,7 +854,7 @@ static int update_header_and_rehash(git_indexer *idx, git_transfer_progress *sta
 		giterr_set(GITERR_OS, "failed to update the pack header");
 		return -1;
 	}
-
+	*/
 	/*
 	 * We now use the same technique as before to determine the
 	 * hash. We keep reading up to the end and let
@@ -921,6 +929,7 @@ int git_indexer_commit(git_indexer *idx, git_transfer_progress *stats)
 		if (update_header_and_rehash(idx, stats) < 0)
 			return -1;
 
+		/*
 		git_hash_final(&trailer_hash, &idx->trailer);
 		if (p_lseek(idx->pack_file.fd, -GIT_OID_RAWSZ, SEEK_END) < 0)
 			return -1;
@@ -929,6 +938,7 @@ int git_indexer_commit(git_indexer *idx, git_transfer_progress *stats)
 			giterr_set(GITERR_OS, "failed to update pack trailer");
 			return -1;
 		}
+		*/
 	}
 
 	git_vector_sort(&idx->objects);
@@ -1017,8 +1027,8 @@ int git_indexer_commit(git_indexer *idx, git_transfer_progress *stats)
 	if (index_path(&filename, idx, ".pack") < 0)
 		goto on_error;
 	/* And don't forget to rename the packfile to its new place. */
-	if (git_filebuf_commit_at(&idx->pack_file, filename.ptr) < 0)
-		return -1;
+	//if (git_filebuf_commit_at(&idx->pack_file, filename.ptr) < 0)
+	//	return -1;
 
 	git_buf_free(&filename);
 	return 0;
@@ -1048,6 +1058,6 @@ void git_indexer_free(git_indexer *idx)
 
 	git_vector_free_deep(&idx->deltas);
 	git_packfile_free(idx->pack);
-	git_filebuf_cleanup(&idx->pack_file);
+	//git_filebuf_cleanup(&idx->pack_file);
 	git__free(idx);
 }
