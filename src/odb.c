@@ -297,12 +297,31 @@ typedef struct {
 	char *buffer;
 	size_t size, written;
 	git_otype type;
+	git_odb *db;
 } fake_wstream;
 
 static int fake_wstream__fwrite(git_odb_stream *_stream, const git_oid *oid)
 {
 	fake_wstream *stream = (fake_wstream *)_stream;
-	return _stream->backend->write(_stream->backend, oid, stream->buffer, stream->size, stream->type);
+	git_odb *db = stream->db;
+	size_t i, writes = 0;
+	int error;
+
+	for (i = 0; i < db->backends.length && error < 0; ++i) {
+		backend_internal *internal = git_vector_get(&db->backends, i);
+		git_odb_backend *b = internal->backend;
+
+		/* we don't write in alternates! */
+		if (internal->is_alternate)
+			continue;
+
+		if (b->write != NULL) {
+			writes++;
+			error = b->write(b, oid, stream->buffer, stream->size, stream->type);
+		}
+	}
+
+	return error;
 }
 
 static int fake_wstream__write(git_odb_stream *_stream, const char *data, size_t len)
@@ -325,13 +344,14 @@ static void fake_wstream__free(git_odb_stream *_stream)
 	git__free(stream);
 }
 
-static int init_fake_wstream(git_odb_stream **stream_p, git_odb_backend *backend, size_t size, git_otype type)
+static int init_fake_wstream(git_odb_stream **stream_p, git_odb *db, size_t size, git_otype type)
 {
 	fake_wstream *stream;
 
 	stream = git__calloc(1, sizeof(fake_wstream));
 	GITERR_CHECK_ALLOC(stream);
 
+	stream->db = db;
 	stream->size = size;
 	stream->type = type;
 	stream->buffer = git__malloc(size);
@@ -340,7 +360,7 @@ static int init_fake_wstream(git_odb_stream **stream_p, git_odb_backend *backend
 		return -1;
 	}
 
-	stream->stream.backend = backend;
+	stream->stream.backend = NULL; /* we don't quite know */
 	stream->stream.read = NULL; /* read only */
 	stream->stream.write = &fake_wstream__write;
 	stream->stream.finalize_write = &fake_wstream__fwrite;
@@ -943,7 +963,7 @@ int git_odb_open_wstream(
 			error = b->writestream(stream, b, size, type);
 		} else if (b->write != NULL) {
 			++writes;
-			error = init_fake_wstream(stream, b, size, type);
+			error = init_fake_wstream(stream, db, size, type);
 		}
 	}
 
@@ -1006,7 +1026,12 @@ int git_odb_stream_finalize_write(git_oid *out, git_odb_stream *stream)
 
 	git_hash_final(out, stream->hash_ctx);
 
-	if (git_odb_exists(stream->backend->odb, out))
+	/*
+	 * A fake wstream does not have a backend set, as we do not
+	 * know which backend we actually want to write to, so we
+	 * skip this check here as it will do its own checking.
+	 */
+	if (stream->backend && git_odb_exists(stream->backend->odb, out))
 		return 0;
 
 	return stream->finalize_write(stream, out);
