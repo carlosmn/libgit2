@@ -968,7 +968,7 @@ void git_packfile_free(struct git_pack_file *p)
 
 	cache_free(&p->bases);
 
-	git_mwindow_free_all(&p->mwf);
+	git_mwindow_free_all_locked(&p->mwf);
 
 	if (p->mwf.fd >= 0)
 		p_close(p->mwf.fd);

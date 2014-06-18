@@ -90,6 +90,7 @@ struct git_pack_file {
 	git_mwindow_file mwf;
 	git_map index_map;
 	git_mutex lock; /* protect updates to mwf and index_map */
+	git_atomic refcount;
 
 	uint32_t num_objects;
 	uint32_t num_bad_objects;
