@@ -124,6 +124,33 @@ static int find_locked(transaction_node **out, git_transaction *tx, const char *
 	return 0;
 }
 
+static int copy_common(transaction_node *node, git_transaction *tx, const git_signature *sig, const char *msg)
+{
+	if (sig && git_signature__pdup(&node->sig, sig, &tx->pool) < 0)
+		return -1;
+
+	if (!node->sig) {
+		git_signature *tmp;
+		int error;
+
+		if (git_reference__log_signature(&tmp, tx->repo) < 0)
+			return -1;
+
+		/* make sure the sig we use is in our pool */
+		error = git_signature__pdup(&node->sig, tmp, &tx->pool);
+		git_signature_free(tmp);
+		if (error < 0)
+			return error;
+	}
+
+	if (msg) {
+		node->message = git_pool_strdup(&tx->pool, msg);
+		GITERR_CHECK_ALLOC(node->message);
+	}
+
+	return 0;
+}
+
 int git_transaction_set_target(git_transaction *tx, const char *refname, git_oid *target, const git_signature *sig, const char *msg)
 {
 	int error;
@@ -134,16 +161,8 @@ int git_transaction_set_target(git_transaction *tx, const char *refname, git_oid
 	if ((error = find_locked(&node, tx, refname)) < 0)
 		return error;
 
-	if (sig && git_signature__pdup(&node->sig, sig, &tx->pool) < 0)
-		return -1;
-
-	if (!node->sig && git_reference__log_signature(&node->sig, tx->repo) < 0)
-		return -1;
-
-	if (msg) {
-		node->message = git_pool_strdup(&tx->pool, msg);
-		GITERR_CHECK_ALLOC(node->message);
-	}
+	if ((error = copy_common(node, tx, sig, msg)) < 0)
+		return error;
 
 	git_oid_cpy(&node->target.id, target);
 	node->ref_type = GIT_REF_OID;
@@ -161,13 +180,8 @@ int git_transaction_set_symbolic_target(git_transaction *tx, const char *refname
 	if ((error = find_locked(&node, tx, refname)) < 0)
 		return error;
 
-	if (sig && git_signature__pdup(&node->sig, sig, &tx->pool) < 0)
-		return -1;
-
-	if (msg) {
-		node->message = git_pool_strdup(&tx->pool, msg);
-		GITERR_CHECK_ALLOC(node->message);
-	}
+	if ((error = copy_common(node, tx, sig, msg)) < 0)
+		return error;
 
 	node->target.symbolic = git_pool_strdup(&tx->pool, target);
 	GITERR_CHECK_ALLOC(node->target.symbolic);
