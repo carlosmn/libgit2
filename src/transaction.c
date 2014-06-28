@@ -33,7 +33,8 @@ typedef struct {
 	const char *message;
 	git_signature *sig;
 
-	unsigned int committed :1;
+	unsigned int committed :1,
+		remove :1;
 } transaction_node;
 
 struct git_transaction {
@@ -190,6 +191,20 @@ int git_transaction_set_symbolic_target(git_transaction *tx, const char *refname
 	return 0;
 }
 
+int git_transaction_remove(git_transaction *tx, const char *refname)
+{
+	int error;
+	transaction_node *node;
+
+	if ((error = find_locked(&node, tx, refname)) < 0)
+		return error;
+
+	node->remove = true;
+	node->ref_type = GIT_REF_OID; /* the id will be ignored */
+
+	return 0;
+}
+
 static int dup_reflog(git_reflog **out, const git_reflog *in, git_pool *pool)
 {
 	git_reflog *reflog;
@@ -263,7 +278,9 @@ static int update_target(git_refdb *db, transaction_node *node)
 	GITERR_CHECK_ALLOC(ref);
 	update_reflog = node->reflog != NULL;
 
-	if (node->ref_type == GIT_REF_OID) {
+	if (node->remove) {
+		error =  git_refdb_unlock(db, node->payload, 2, false, ref, NULL, NULL);
+	} else if (node->ref_type == GIT_REF_OID) {
 		error = git_refdb_unlock(db, node->payload, true, update_reflog, ref, node->sig, node->message);
 	} else if (node->ref_type == GIT_REF_SYMBOLIC) {
 		error = git_refdb_unlock(db, node->payload, true, update_reflog, ref, node->sig, node->message);

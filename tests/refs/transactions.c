@@ -69,6 +69,18 @@ void test_refs_transactions__single_ref_mix_types(void)
 	git_reference_free(ref);
 }
 
+void test_refs_transactions__single_ref_delete(void)
+{
+	git_reference *ref;
+	git_oid id;
+
+	cl_git_pass(git_transaction_lock(g_tx, "refs/heads/master"));
+	cl_git_pass(git_transaction_remove(g_tx, "refs/heads/master"));
+	cl_git_pass(git_transaction_commit(g_tx));
+
+	cl_git_fail_with(GIT_ENOTFOUND, git_reference_lookup(&ref, g_repo, "refs/heads/master"));
+}
+
 void test_refs_transactions__unlocked_set(void)
 {
 	git_oid id;

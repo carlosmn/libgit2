@@ -773,6 +773,11 @@ static int refdb_fs_backend__write_tail(
 	const git_oid *old_id,
 	const char *old_target);
 
+static int refdb_fs_backend__delete_tail(
+	git_refdb_backend *_backend,
+	git_filebuf *file,
+	const char *ref_name,
+	const git_oid *old_id, const char *old_target);
 
 static int refdb_fs_backend__unlock(git_refdb_backend *backend, void *payload, int success, int update_reflog,
 				    const git_reference *ref, const git_signature *sig, const char *message)
@@ -780,7 +785,9 @@ static int refdb_fs_backend__unlock(git_refdb_backend *backend, void *payload, i
 	git_filebuf *lock = (git_filebuf *) payload;
 	int error = 0;
 
-	if (success)
+	if (success == 2)
+		error = refdb_fs_backend__delete_tail(backend, lock, ref->name, NULL, NULL);
+	else if (success)
 		error = refdb_fs_backend__write_tail(backend, ref, lock, update_reflog, sig, message, NULL, NULL);
 	else
 		git_filebuf_cleanup(lock);
@@ -1197,16 +1204,28 @@ static int refdb_fs_backend__delete(
 	const git_oid *old_id, const char *old_target)
 {
 	refdb_fs_backend *backend = (refdb_fs_backend *)_backend;
-	git_buf loose_path = GIT_BUF_INIT;
-	size_t pack_pos;
 	git_filebuf file = GIT_FILEBUF_INIT;
-	int error = 0, cmp = 0;
-	bool loose_deleted = 0;
+	int error = 0;
 
 	assert(backend && ref_name);
 
 	if ((error = loose_lock(&file, backend, ref_name)) < 0)
 		return error;
+
+	return refdb_fs_backend__delete_tail(_backend, &file, ref_name, old_id, old_target);
+}
+
+static int refdb_fs_backend__delete_tail(
+	git_refdb_backend *_backend,
+	git_filebuf *file,
+	const char *ref_name,
+	const git_oid *old_id, const char *old_target)
+{
+	refdb_fs_backend *backend = (refdb_fs_backend *)_backend;
+	git_buf loose_path = GIT_BUF_INIT;
+	size_t pack_pos;
+	int error = 0, cmp = 0;
+	bool loose_deleted = 0;
 
 	error = cmp_old_ref(&cmp, _backend, ref_name, old_id, old_target);
 	if (error < 0)
@@ -1253,7 +1272,7 @@ static int refdb_fs_backend__delete(
 	error = packed_write(backend);
 
 cleanup:
-	git_filebuf_cleanup(&file);
+	git_filebuf_cleanup(file);
 
 	return error;
 }
