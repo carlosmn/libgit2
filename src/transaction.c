@@ -122,7 +122,7 @@ int git_transaction_set_target(git_transaction *tx, const char *refname, git_oid
 	}
 
 	node = git_strmap_value_at(tx->locks, pos);
-	if (sig && git_signature_dup(&node->sig, sig) < 0)
+	if (sig && git_signature__pdup(&node->sig, sig, &tx->pool) < 0)
 		return -1;
 
 	if (!node->sig && git_reference__log_signature(&node->sig, tx->repo) < 0)
@@ -154,7 +154,7 @@ int git_transaction_set_symbolic_target(git_transaction *tx, const char *refname
 	}
 
 	node = git_strmap_value_at(tx->locks, pos);
-	if (sig && git_signature_dup(&node->sig, sig) < 0)
+	if (sig && git_signature__pdup(&node->sig, sig, &tx->pool) < 0)
 		return -1;
 
 	if (msg) {
@@ -306,9 +306,6 @@ void git_transaction_free(git_transaction *tx)
 	}
 
 	git_refdb_free(tx->db);
-	git_strmap_foreach_value(tx->locks, node, {
-		git_signature_free(node->sig);
-	});
 	git_strmap_free(tx->locks);
 
 	/* tx is inside the pool, so we need to extract the data */
