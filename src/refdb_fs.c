@@ -745,6 +745,49 @@ static int loose_commit(git_filebuf *file, const git_reference *ref)
 	return git_filebuf_commit(file);
 }
 
+static int refdb_fs_backend__lock(void **out, git_refdb_backend *_backend, const char *refname)
+{
+	int error;
+	git_filebuf *lock;
+	refdb_fs_backend *backend = (refdb_fs_backend *) _backend;
+
+	lock = git__calloc(1, sizeof(git_filebuf));
+	GITERR_CHECK_ALLOC(lock);
+
+	if ((error = loose_lock(lock, backend, refname)) < 0) {
+		git__free(lock);
+		return error;
+	}
+
+	*out = lock;
+	return 0;
+}
+
+static int refdb_fs_backend__write_tail(
+	git_refdb_backend *_backend,
+	const git_reference *ref,
+	git_filebuf *file,
+	const git_signature *who,
+	const char *message,
+	const git_oid *old_id,
+	const char *old_target);
+
+
+static int refdb_fs_backend__unlock(git_refdb_backend *backend, void *payload, int success,
+				    const git_reference *ref, const git_signature *sig, const char *message)
+{
+	git_filebuf *lock = (git_filebuf *) payload;
+	int error = 0;
+
+	if (success)
+		error = refdb_fs_backend__write_tail(backend, ref, lock, sig, message, NULL, NULL);
+	else
+		git_filebuf_cleanup(lock);
+
+	git__free(lock);
+	return error;
+}
+
 /*
  * Find out what object this reference resolves to.
  *
@@ -1063,7 +1106,6 @@ cleanup:
 	return error;
 }
 
-
 static int refdb_fs_backend__write(
 	git_refdb_backend *_backend,
 	const git_reference *ref,
@@ -1075,9 +1117,7 @@ static int refdb_fs_backend__write(
 {
 	refdb_fs_backend *backend = (refdb_fs_backend *)_backend;
 	git_filebuf file = GIT_FILEBUF_INIT;
-	int error = 0, cmp = 0, should_write;
-	const char *new_target = NULL;
-	const git_oid *new_id = NULL;
+	int error = 0;
 
 	assert(backend);
 
@@ -1088,6 +1128,23 @@ static int refdb_fs_backend__write(
 	/* We need to perform the reflog append and old value check under the ref's lock */
 	if ((error = loose_lock(&file, backend, ref->name)) < 0)
 		return error;
+
+	return refdb_fs_backend__write_tail(_backend, ref, &file, who, message, old_id, old_target);
+}
+
+static int refdb_fs_backend__write_tail(
+	git_refdb_backend *_backend,
+	const git_reference *ref,
+	git_filebuf *file,
+	const git_signature *who,
+	const char *message,
+	const git_oid *old_id,
+	const char *old_target)
+{
+	refdb_fs_backend *backend = (refdb_fs_backend *)_backend;
+	int error = 0, cmp = 0, should_write;
+	const char *new_target = NULL;
+	const git_oid *new_id = NULL;
 
 	if ((error = cmp_old_ref(&cmp, _backend, ref->name, old_id, old_target)) < 0)
 		goto on_error;
@@ -1123,10 +1180,10 @@ static int refdb_fs_backend__write(
 			goto on_error;
 	}
 
-	return loose_commit(&file, ref);
+	return loose_commit(file, ref);
 
 on_error:
-        git_filebuf_cleanup(&file);
+        git_filebuf_cleanup(file);
         return error;
 }
 
@@ -1837,6 +1894,8 @@ int git_refdb_backend_fs(
 	backend->parent.del = &refdb_fs_backend__delete;
 	backend->parent.rename = &refdb_fs_backend__rename;
 	backend->parent.compress = &refdb_fs_backend__compress;
+	backend->parent.lock = &refdb_fs_backend__lock;
+	backend->parent.unlock = &refdb_fs_backend__unlock;
 	backend->parent.has_log = &refdb_reflog_fs__has_log;
 	backend->parent.ensure_log = &refdb_reflog_fs__ensure_log;
 	backend->parent.free = &refdb_fs_backend__free;
