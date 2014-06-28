@@ -152,7 +152,7 @@ static int copy_common(transaction_node *node, git_transaction *tx, const git_si
 	return 0;
 }
 
-int git_transaction_set_target(git_transaction *tx, const char *refname, git_oid *target, const git_signature *sig, const char *msg)
+int git_transaction_set_target(git_transaction *tx, const char *refname, const git_oid *target, const git_signature *sig, const char *msg)
 {
 	int error;
 	transaction_node *node;
@@ -230,6 +230,7 @@ static int dup_reflog(git_reflog **out, const git_reflog *in, git_pool *pool)
 		git_reflog_entry *tgt;
 
 		tgt = &entries[i];
+		reflog->entries.contents[i] = tgt;
 
 		src = git_reflog_entry_byindex(in, i);
 		git_oid_cpy(&tgt->oid_old, &src->oid_old);
@@ -241,6 +242,7 @@ static int dup_reflog(git_reflog **out, const git_reflog *in, git_pool *pool)
 		if (git_signature__pdup(&tgt->committer, src->committer, pool) < 0)
 			return -1;
 	}
+
 
 	*out = reflog;
 	return 0;
