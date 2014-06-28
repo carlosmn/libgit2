@@ -107,12 +107,10 @@ cleanup:
 	return error;
 }
 
-int git_transaction_set_target(git_transaction *tx, const char *refname, git_oid *target, const git_signature *sig, const char *msg)
+static int find_locked(transaction_node **out, git_transaction *tx, const char *refname)
 {
 	git_strmap_iter pos;
 	transaction_node *node;
-
-	assert(tx && refname && target);
 
 	pos = git_strmap_lookup_index(tx->locks, refname);
 	if (!git_strmap_valid_index(tx->locks, pos)) {
@@ -121,6 +119,21 @@ int git_transaction_set_target(git_transaction *tx, const char *refname, git_oid
 	}
 
 	node = git_strmap_value_at(tx->locks, pos);
+
+	*out = node;
+	return 0;
+}
+
+int git_transaction_set_target(git_transaction *tx, const char *refname, git_oid *target, const git_signature *sig, const char *msg)
+{
+	int error;
+	transaction_node *node;
+
+	assert(tx && refname && target);
+
+	if ((error = find_locked(&node, tx, refname)) < 0)
+		return error;
+
 	if (sig && git_signature__pdup(&node->sig, sig, &tx->pool) < 0)
 		return -1;
 
@@ -140,18 +153,14 @@ int git_transaction_set_target(git_transaction *tx, const char *refname, git_oid
 
 int git_transaction_set_symbolic_target(git_transaction *tx, const char *refname, const char *target, const git_signature *sig, const char *msg)
 {
-	git_strmap_iter pos;
+	int error;
 	transaction_node *node;
 
 	assert(tx && refname && target);
 
-	pos = git_strmap_lookup_index(tx->locks, refname);
-	if (!git_strmap_valid_index(tx->locks, pos)) {
-		giterr_set(GITERR_REFERENCE, "the specified reference is not locked");
-		return GIT_ENOTFOUND;
-	}
+	if ((error = find_locked(&node, tx, refname)) < 0)
+		return error;
 
-	node = git_strmap_value_at(tx->locks, pos);
 	if (sig && git_signature__pdup(&node->sig, sig, &tx->pool) < 0)
 		return -1;
 
@@ -211,18 +220,12 @@ static int dup_reflog(git_reflog **out, const git_reflog *in, git_pool *pool)
 int git_transaction_set_reflog(git_transaction *tx, const char *refname, const git_reflog *reflog)
 {
 	int error;
-	git_strmap_iter pos;
 	transaction_node *node;
 
 	assert(tx && refname && reflog);
 
-	pos = git_strmap_lookup_index(tx->locks, refname);
-	if (!git_strmap_valid_index(tx->locks, pos)) {
-		giterr_set(GITERR_REFERENCE, "the specified reference is not locked");
-		return GIT_ENOTFOUND;
-	}
-
-	node = git_strmap_value_at(tx->locks, pos);
+	if ((error = find_locked(&node, tx, refname)) < 0)
+		return error;
 
 	if ((error = dup_reflog(&node->reflog, reflog, &tx->pool)) < 0)
 		return error;
