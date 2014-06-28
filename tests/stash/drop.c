@@ -115,8 +115,8 @@ void test_stash_drop__dropping_an_entry_rewrites_reflog_history(void)
 	cl_git_pass(git_reflog_read(&reflog, repo, GIT_REFS_STASH_FILE));
 	entry = git_reflog_entry_byindex(reflog, 0);
 
-	cl_assert_equal_i(0, git_oid_cmp(&oid, git_reflog_entry_id_old(entry)));
 	cl_assert_equal_sz(count - 1, git_reflog_entrycount(reflog));
+	cl_assert_equal_i(0, git_oid_cmp(&oid, git_reflog_entry_id_old(entry)));
 
 	git_reflog_free(reflog);
 

@@ -218,6 +218,7 @@ static int dup_reflog(git_reflog **out, const git_reflog *in, git_pool *pool)
 	GITERR_CHECK_ALLOC(reflog->ref_name);
 
 	len = in->entries.length;
+	printf("%s: reflog length %zu\n", __func__, len);
 	reflog->entries.length = len;
 	reflog->entries.contents = git_pool_mallocz(pool, len * sizeof(void *));
 	GITERR_CHECK_ALLOC(reflog->entries.contents);
@@ -278,7 +279,7 @@ static int update_target(git_refdb *db, transaction_node *node)
 	}
 
 	GITERR_CHECK_ALLOC(ref);
-	update_reflog = node->reflog != NULL;
+	update_reflog = node->reflog == NULL;
 
 	if (node->remove) {
 		error =  git_refdb_unlock(db, node->payload, 2, false, ref, NULL, NULL);
