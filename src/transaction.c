@@ -10,6 +10,9 @@
 #include "strmap.h"
 #include "refdb.h"
 #include "pool.h"
+#include "reflog.h"
+#include "signature.h"
+
 #include "git2/signature.h"
 #include "git2/sys/refs.h"
 
@@ -24,6 +27,7 @@ typedef struct {
 		git_oid id;
 		char *symbolic;
 	} target;
+	git_reflog *reflog;
 
 	const char *message;
 	git_signature *sig;
@@ -162,6 +166,71 @@ int git_transaction_set_symbolic_target(git_transaction *tx, const char *refname
 	GITERR_CHECK_ALLOC(node->target.symbolic);
 	node->ref_type = GIT_REF_SYMBOLIC;
 	node->set_target = 1;
+
+	return 0;
+}
+
+static int dup_reflog(git_reflog **out, const git_reflog *in, git_pool *pool)
+{
+	git_reflog *reflog;
+	git_reflog_entry *entries;
+	size_t len, i;
+
+	reflog = git_pool_mallocz(pool, sizeof(git_reflog));
+	GITERR_CHECK_ALLOC(reflog);
+
+	reflog->ref_name = git_pool_strdup(pool, in->ref_name);
+	GITERR_CHECK_ALLOC(reflog->ref_name);
+
+	len = in->entries.length;
+	reflog->entries.length = len;
+	reflog->entries.contents = git_pool_mallocz(pool, len * sizeof(void *));
+	GITERR_CHECK_ALLOC(reflog->entries.contents);
+
+	entries = git_pool_mallocz(pool, len * sizeof(git_reflog_entry));
+	GITERR_CHECK_ALLOC(entries);
+
+	for (i = 0; i < len; i++) {
+		const git_reflog_entry *src;
+		git_reflog_entry *tgt;
+
+		tgt = &entries[i];
+
+		src = git_reflog_entry_byindex(in, i);
+		git_oid_cpy(&tgt->oid_old, &src->oid_old);
+		git_oid_cpy(&tgt->oid_cur, &src->oid_cur);
+
+		tgt->msg = git_pool_strdup(pool, src->msg);
+		GITERR_CHECK_ALLOC(tgt->msg);
+
+		if (git_signature__pdup(&tgt->committer, src->committer, pool) < 0)
+			return -1;
+	}
+
+	*out = reflog;
+	return 0;
+}
+
+int git_transaction_set_reflog(git_transaction *tx, const char *refname, const git_reflog *reflog)
+{
+	int error;
+	git_strmap_iter pos;
+	transaction_node *node;
+
+	assert(tx && refname && reflog);
+
+	pos = git_strmap_lookup_index(tx->locks, refname);
+	if (!git_strmap_valid_index(tx->locks, pos)) {
+		giterr_set(GITERR_REFERENCE, "the specified reference is not locked");
+		return GIT_ENOTFOUND;
+	}
+
+	node = git_strmap_value_at(tx->locks, pos);
+
+	if ((error = dup_reflog(&node->reflog, reflog, &tx->pool)) < 0)
+		return error;
+
+	node->set_reflog = true;
 
 	return 0;
 }
