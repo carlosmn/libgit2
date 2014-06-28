@@ -164,7 +164,7 @@ struct git_refdb_backend {
 	 * will be set. success indicates wheter to update the
 	 * reference or discard the lock (if it's false)
 	 */
-	int (*unlock)(git_refdb_backend *backend, void *payload, int success,
+	int (*unlock)(git_refdb_backend *backend, void *payload, int success, int update_reflog,
 		      const git_reference *ref, const git_signature *sig, const char *message);
 };
 

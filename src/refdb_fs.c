@@ -767,20 +767,21 @@ static int refdb_fs_backend__write_tail(
 	git_refdb_backend *_backend,
 	const git_reference *ref,
 	git_filebuf *file,
+	int update_reflog,
 	const git_signature *who,
 	const char *message,
 	const git_oid *old_id,
 	const char *old_target);
 
 
-static int refdb_fs_backend__unlock(git_refdb_backend *backend, void *payload, int success,
+static int refdb_fs_backend__unlock(git_refdb_backend *backend, void *payload, int success, int update_reflog,
 				    const git_reference *ref, const git_signature *sig, const char *message)
 {
 	git_filebuf *lock = (git_filebuf *) payload;
 	int error = 0;
 
 	if (success)
-		error = refdb_fs_backend__write_tail(backend, ref, lock, sig, message, NULL, NULL);
+		error = refdb_fs_backend__write_tail(backend, ref, lock, update_reflog, sig, message, NULL, NULL);
 	else
 		git_filebuf_cleanup(lock);
 
@@ -1129,13 +1130,14 @@ static int refdb_fs_backend__write(
 	if ((error = loose_lock(&file, backend, ref->name)) < 0)
 		return error;
 
-	return refdb_fs_backend__write_tail(_backend, ref, &file, who, message, old_id, old_target);
+	return refdb_fs_backend__write_tail(_backend, ref, &file, true, who, message, old_id, old_target);
 }
 
 static int refdb_fs_backend__write_tail(
 	git_refdb_backend *_backend,
 	const git_reference *ref,
 	git_filebuf *file,
+	int update_reflog,
 	const git_signature *who,
 	const char *message,
 	const git_oid *old_id,
@@ -1170,14 +1172,16 @@ static int refdb_fs_backend__write_tail(
 		goto on_error; /* not really error */
 	}
 
-	if ((error = should_write_reflog(&should_write, backend->repo, ref->name)) < 0)
-		goto on_error;
+	if (update_reflog) {
+		if ((error = should_write_reflog(&should_write, backend->repo, ref->name)) < 0)
+			goto on_error;
 
-	if (should_write) {
-		if ((error = reflog_append(backend, ref, NULL, NULL, who, message)) < 0)
-			goto on_error;
-		if ((error = maybe_append_head(backend, ref, who, message)) < 0)
-			goto on_error;
+		if (should_write) {
+			if ((error = reflog_append(backend, ref, NULL, NULL, who, message)) < 0)
+				goto on_error;
+			if ((error = maybe_append_head(backend, ref, who, message)) < 0)
+				goto on_error;
+		}
 	}
 
 	return loose_commit(file, ref);

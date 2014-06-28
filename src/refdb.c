@@ -255,9 +255,9 @@ int git_refdb_lock(void **payload, git_refdb *db, const char *refname)
 	return db->backend->lock(payload, db->backend, refname);
 }
 
-int git_refdb_unlock(git_refdb *db, void *payload, int success, const git_reference *ref, const git_signature *sig, const char *message)
+int git_refdb_unlock(git_refdb *db, void *payload, int success, int update_reflog, const git_reference *ref, const git_signature *sig, const char *message)
 {
 	assert(db);
 
-	return db->backend->unlock(db->backend, payload, success, ref, sig, message);
+	return db->backend->unlock(db->backend, payload, success, update_reflog, ref, sig, message);
 }

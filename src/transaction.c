@@ -15,6 +15,7 @@
 
 #include "git2/signature.h"
 #include "git2/sys/refs.h"
+#include "git2/sys/refdb_backend.h"
 
 GIT__USE_STRMAP;
 
@@ -32,9 +33,7 @@ typedef struct {
 	const char *message;
 	git_signature *sig;
 
-	unsigned int set_target :1,
-		set_reflog :1,
-		committed :1;
+	unsigned int committed :1;
 } transaction_node;
 
 struct git_transaction {
@@ -103,7 +102,7 @@ int git_transaction_lock(git_transaction *tx, const char *refname)
 	return 0;
 
 cleanup:
-	git_refdb_unlock(tx->db, node->payload, false, NULL, NULL, NULL);
+	git_refdb_unlock(tx->db, node->payload, false, false, NULL, NULL, NULL);
 
 	return error;
 }
@@ -135,7 +134,6 @@ int git_transaction_set_target(git_transaction *tx, const char *refname, git_oid
 
 	git_oid_cpy(&node->target.id, target);
 	node->ref_type = GIT_REF_OID;
-	node->set_target = 1;
 
 	return 0;
 }
@@ -165,7 +163,6 @@ int git_transaction_set_symbolic_target(git_transaction *tx, const char *refname
 	node->target.symbolic = git_pool_strdup(&tx->pool, target);
 	GITERR_CHECK_ALLOC(node->target.symbolic);
 	node->ref_type = GIT_REF_SYMBOLIC;
-	node->set_target = 1;
 
 	return 0;
 }
@@ -230,16 +227,43 @@ int git_transaction_set_reflog(git_transaction *tx, const char *refname, const g
 	if ((error = dup_reflog(&node->reflog, reflog, &tx->pool)) < 0)
 		return error;
 
-	node->set_reflog = true;
-
 	return 0;
+}
+
+static int update_target(git_refdb *db, transaction_node *node)
+{
+	git_reference *ref;
+	int error, update_reflog;
+
+	if (node->ref_type == GIT_REF_OID) {
+		ref = git_reference__alloc(node->name, &node->target.id, NULL);
+	} else if (node->ref_type == GIT_REF_SYMBOLIC) {
+		ref = git_reference__alloc_symbolic(node->name, node->target.symbolic);
+	} else {
+		assert(0);
+	}
+
+	GITERR_CHECK_ALLOC(ref);
+	update_reflog = node->reflog != NULL;
+
+	if (node->ref_type == GIT_REF_OID) {
+		error = git_refdb_unlock(db, node->payload, true, update_reflog, ref, node->sig, node->message);
+	} else if (node->ref_type == GIT_REF_SYMBOLIC) {
+		error = git_refdb_unlock(db, node->payload, true, update_reflog, ref, node->sig, node->message);
+	} else {
+		assert(0);
+	}
+
+	git_reference_free(ref);
+	node->committed = true;
+
+	return error;
 }
 
 int git_transaction_commit(git_transaction *tx)
 {
 	transaction_node *node;
 	git_strmap_iter pos;
-	git_reference *ref;
 	int error;
 
 	assert(tx);
@@ -249,37 +273,15 @@ int git_transaction_commit(git_transaction *tx)
 			continue;
 
 		node = git_strmap_value_at(tx->locks, pos);
-		if (!node->set_target) {
-			node->committed = true;
-			if ((error = git_refdb_unlock(tx->db, node->payload, false, NULL, NULL, NULL)) < 0)
+		if (node->reflog) {
+			if ((error = tx->db->backend->reflog_write(tx->db->backend, node->reflog)) < 0)
 				return error;
-
-			continue;
 		}
 
-		if (node->ref_type == GIT_REF_OID) {
-			ref = git_reference__alloc(node->name, &node->target.id, NULL);
-		} else if (node->ref_type == GIT_REF_SYMBOLIC) {
-			ref = git_reference__alloc_symbolic(node->name, node->target.symbolic);
-		} else {
-			assert(0);
+		if (node->ref_type != GIT_REF_INVALID) {
+			if ((error = update_target(tx->db, node)) < 0)
+				return error;
 		}
-
-		GITERR_CHECK_ALLOC(ref);
-
-		if (node->ref_type == GIT_REF_OID) {
-			error = git_refdb_unlock(tx->db, node->payload, true, ref, node->sig, node->message);
-		} else if (node->ref_type == GIT_REF_SYMBOLIC) {
-			error = git_refdb_unlock(tx->db, node->payload, true, ref, node->sig, node->message);
-		} else {
-			assert(0);
-		}
-
-		git_reference_free(ref);
-		node->committed = true;
-
-		if (error < 0)
-			return error;
 	}
 
 	return 0;
@@ -302,7 +304,7 @@ void git_transaction_free(git_transaction *tx)
 		if (node->committed)
 			continue;
 
-		git_refdb_unlock(tx->db, node->payload, false, NULL, NULL, NULL);
+		git_refdb_unlock(tx->db, node->payload, false, false, NULL, NULL, NULL);
 	}
 
 	git_refdb_free(tx->db);
