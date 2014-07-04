@@ -20,6 +20,39 @@
  */
 GIT_BEGIN_DECL
 
+/**
+ * Type of host certificate structure that is passed to the check callback
+ */
+typedef enum {
+        /**
+         * The `data` argument to the callback will be a pointer to
+         * OpenSSL's `X509` structure.
+         */
+	GIT_CERT_X509_OPENSSL,
+	GIT_CERT_X509_WINHTTP,
+        /**
+         * The `data` argument to the callback will be a pointer to a
+         * `git_cert_hostkey` structure.
+         */
+	GIT_CERT_HOSTKEY_LIBSSH2,
+} git_cert_t;
+
+/**
+ * Hostkey information taken from libssh2
+ */
+typedef struct {
+        /**
+         * A hostkey type from libssh2, either
+         * `LIBSSH2_HOSTKEY_HASH_MD5` or `LIBSSH2_HOSTKEY_HASH_SHA1`
+         */
+        int type;
+        /**
+         * Hostkey hash. If the type is MD5, only the first 16 bytes
+         * will be set.
+         */
+        unsigned char hash[20];
+} git_cert_hostkey;
+
 /*
  *** Begin interface for credentials acquisition ***
  */
@@ -240,6 +273,7 @@ typedef enum {
 } git_transport_flags_t;
 
 typedef int (*git_transport_message_cb)(const char *str, int len, void *data);
+typedef int (*git_certificate_check_cb)(git_cert_t type, void *data, void *payload);
 
 typedef struct git_transport git_transport;
 
@@ -250,6 +284,7 @@ struct git_transport {
 		git_transport *transport,
 		git_transport_message_cb progress_cb,
 		git_transport_message_cb error_cb,
+		git_certificate_check_cb cert_check_cb,
 		void *payload);
 
 	/* Connect the transport to the remote repository, using the given
