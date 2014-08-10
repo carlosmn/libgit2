@@ -26,10 +26,9 @@ GIT_BEGIN_DECL
 typedef enum {
         /**
          * The `data` argument to the callback will be a pointer to
-         * OpenSSL's `X509` structure.
+         * the DER-encoded data.
          */
-	GIT_CERT_X509_OPENSSL,
-	GIT_CERT_X509_WINHTTP,
+	GIT_CERT_X509,
         /**
          * The `data` argument to the callback will be a pointer to a
          * `git_cert_hostkey` structure.
@@ -273,7 +272,7 @@ typedef enum {
 } git_transport_flags_t;
 
 typedef int (*git_transport_message_cb)(const char *str, int len, void *data);
-typedef int (*git_certificate_check_cb)(git_cert_t type, void *data, void *payload);
+typedef int (*git_certificate_check_cb)(git_cert_t type, void *data, size_t len, void *payload);
 
 typedef struct git_transport git_transport;
 

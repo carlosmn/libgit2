@@ -482,7 +482,8 @@ static int _git_ssh_setup_conn(
                         return -1;
                 }
 
-                allow = t->owner->certificate_check_cb(GIT_CERT_HOSTKEY_LIBSSH2, &cert, t->owner->message_cb_payload);
+		/* FIXME: the 0 is a dummy length value */
+                allow = t->owner->certificate_check_cb(GIT_CERT_HOSTKEY_LIBSSH2, &cert, 0, t->owner->message_cb_payload);
                 if (allow < 0) {
                         error = allow;
                         goto on_error;
