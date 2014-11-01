@@ -24,7 +24,9 @@ GIT_BEGIN_DECL
  * and fill the functions
  */
 typedef struct git_stream {
+	int encrypted;
 	int (*connect)(struct git_stream *);
+	int (*certificate)(git_cert **, struct git_stream *);
 	ssize_t (*read)(struct git_stream *, void *, size_t);
 	ssize_t (*write)(struct git_stream *, void *, size_t, int);
 	int (*close)(struct git_stream *);
