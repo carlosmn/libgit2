@@ -15,6 +15,16 @@ GIT_INLINE(int) git_stream_connect(git_stream *st)
 	return st->connect(st);
 }
 
+GIT_INLINE(int) git_stream_certificate(git_cert **out, git_stream *st)
+{
+	if (!st->encrypted) {
+		giterr_set(GITERR_INVALID, "an unencrypted stream does not have a certificate");
+		return -1;
+	}
+
+	return st->certificate(out, st);
+}
+
 GIT_INLINE(ssize_t) git_stream_read(git_stream *st, void *data, size_t len)
 {
 	return st->read(st, data, len);
