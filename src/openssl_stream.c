@@ -17,6 +17,7 @@
 #include "posix.h"
 #include "stream.h"
 #include "socket_stream.h"
+#include "git2/transport.h"
 
 static int ssl_set_error(SSL *ssl, int error)
 {
@@ -256,7 +257,10 @@ typedef struct {
 	git_stream parent;
 	git_socket_stream *socket;
 	SSL *ssl;
+	git_cert_x509 cert_info;
 } openssl_stream;
+
+int openssl_close(git_stream *stream);
 
 int openssl_connect(git_stream *stream)
 {
@@ -266,10 +270,49 @@ int openssl_connect(git_stream *stream)
 	if ((ret = git_stream_connect((git_stream *)st->socket)) < 0)
 		return ret;
 
+	if ((ret = SSL_set_fd(st->ssl, st->socket->s)) <= 0) {
+		openssl_close((git_stream *) st);
+		return ssl_set_error(st->ssl, ret);
+	}
+
 	if ((ret = SSL_connect(st->ssl)) <= 0)
 		return ssl_set_error(st->ssl, ret);
 
 	return verify_server_cert(st->ssl, st->socket->host);
+}
+
+int openssl_certificate(git_cert **out, git_stream *stream)
+{
+	openssl_stream *st = (openssl_stream *) stream;
+	int len;
+	X509 *cert = SSL_get_peer_certificate(st->ssl);
+	unsigned char *guard, *encoded_cert;
+
+	/* Retrieve the length of the certificate first */
+	len = i2d_X509(cert, NULL);
+	if (len < 0) {
+		giterr_set(GITERR_NET, "failed to retrieve certificate information");
+		return -1;
+	}
+
+	encoded_cert = git__malloc(len);
+	GITERR_CHECK_ALLOC(encoded_cert);
+	/* i2d_X509 makes 'guard' point to just after the data */
+	guard = encoded_cert;
+
+	len = i2d_X509(cert, &guard);
+	if (len < 0) {
+		git__free(encoded_cert);
+		giterr_set(GITERR_NET, "failed to retrieve certificate information");
+		return -1;
+	}
+
+	st->cert_info.cert_type = GIT_CERT_X509;
+	st->cert_info.data = encoded_cert;
+	st->cert_info.len = len;
+
+	*out = (git_cert *)&st->cert_info;
+	return 0;
 }
 
 ssize_t openssl_write(git_stream *stream, void *data, size_t len, int flags)
@@ -323,13 +366,13 @@ void openssl_free(git_stream *stream)
 {
 	openssl_stream *st = (openssl_stream *) stream;
 
+	git__free(st->cert_info.data);
 	git_stream_free((git_stream *) st->socket);
 	git__free(st);
 }
 
 int git_openssl_stream_new(git_stream **out, const char *host, const char *port)
 {
-	int ret;
 	openssl_stream *st;
 
 	st = git__calloc(1, sizeof(openssl_stream));
@@ -344,18 +387,15 @@ int git_openssl_stream_new(git_stream **out, const char *host, const char *port)
 		return -1;
 	}
 
-	if ((ret = SSL_set_fd(st->ssl, st->socket->s)) <= 0) {
-		openssl_close((git_stream *) st);
-		return ssl_set_error(st->ssl, ret);
-	}
-
+	st->parent.encrypted = 1;
 	st->parent.connect = openssl_connect;
+	st->parent.certificate = openssl_certificate;
 	st->parent.read = openssl_read;
 	st->parent.write = openssl_write;
 	st->parent.close = openssl_close;
 	st->parent.free = openssl_free;
 
-	*out = (git_stream *) out;
+	*out = (git_stream *) st;
 	return 0;
 }
 
