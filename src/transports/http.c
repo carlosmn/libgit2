@@ -548,7 +548,6 @@ static int http_connect(http_subtransport *t)
 	if (error < 0)
 		return error;
 
-	printf("connecting with %p\n", t->io);
 	error = git_stream_connect(t->io);
 
 #ifdef GIT_SSL
