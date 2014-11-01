@@ -501,10 +501,10 @@ static int _git_ssh_setup_conn(
 	t->current_stream = s;
 
 done:
-	if (error < 0) {
-		if (*stream)
-			ssh_stream_free(*stream);
-	}
+	/* if (error < 0) { */
+	/* 	if (*stream) */
+	/* 		ssh_stream_free(*stream); */
+	/* } */
 
 	if (cred)
 		cred->free(cred);
