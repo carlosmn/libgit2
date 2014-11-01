@@ -14,6 +14,7 @@
 #include "netops.h"
 #include "smart.h"
 #include "cred.h"
+#include "libssh2_stream.h"
 
 #ifdef GIT_SSH
 
@@ -25,12 +26,9 @@ static const char cmd_receivepack[] = "git-receive-pack";
 
 typedef struct {
 	git_smart_subtransport_stream parent;
-	gitno_socket socket;
-	LIBSSH2_SESSION *session;
-	LIBSSH2_CHANNEL *channel;
+	git_stream *io;
 	const char *cmd;
 	char *url;
-	unsigned sent_command : 1;
 } ssh_stream;
 
 typedef struct {
@@ -87,28 +85,6 @@ static int gen_proto(git_buf *request, const char *cmd, const char *url)
 	return 0;
 }
 
-static int send_command(ssh_stream *s)
-{
-	int error;
-	git_buf request = GIT_BUF_INIT;
-
-	error = gen_proto(&request, s->cmd, s->url);
-	if (error < 0)
-		goto cleanup;
-
-	error = libssh2_channel_exec(s->channel, request.ptr);
-	if (error < LIBSSH2_ERROR_NONE) {
-		ssh_error(s->session, "SSH could not execute request");
-		goto cleanup;
-	}
-
-	s->sent_command = 1;
-
-cleanup:
-	git_buf_free(&request);
-	return error;
-}
-
 static int ssh_stream_read(
 	git_smart_subtransport_stream *stream,
 	char *buffer,
@@ -120,13 +96,8 @@ static int ssh_stream_read(
 
 	*bytes_read = 0;
 
-	if (!s->sent_command && send_command(s) < 0)
-		return -1;
-
-	if ((rc = libssh2_channel_read(s->channel, buffer, buf_size)) < LIBSSH2_ERROR_NONE) {
-		ssh_error(s->session, "SSH could not read data");;
-		return -1;
-	}
+	if ((rc = git_stream_read(s->io, buffer, buf_size)) < 0)
+		return rc;
 
 	*bytes_read = rc;
 
@@ -139,25 +110,9 @@ static int ssh_stream_write(
 	size_t len)
 {
 	ssh_stream *s = (ssh_stream *)stream;
-	size_t off = 0;
-	ssize_t ret = 0;
 
-	if (!s->sent_command && send_command(s) < 0)
+	if (git_stream_write(s->io, buffer, len, 0) < 0)
 		return -1;
-
-	do {
-		ret = libssh2_channel_write(s->channel, buffer + off, len - off);
-		if (ret < 0)
-			break;
-
-		off += ret;
-
-	} while (off < len);
-
-	if (ret < 0) {
-		ssh_error(s->session, "SSH could not write data");
-		return -1;
-	}
 
 	return 0;
 }
@@ -172,22 +127,7 @@ static void ssh_stream_free(git_smart_subtransport_stream *stream)
 
 	t->current_stream = NULL;
 
-	if (s->channel) {
-		libssh2_channel_close(s->channel);
-		libssh2_channel_free(s->channel);
-		s->channel = NULL;
-	}
-
-	if (s->session) {
-		libssh2_session_free(s->session);
-		s->session = NULL;
-	}
-
-	if (s->socket.socket) {
-		(void)gitno_close(&s->socket);
-		/* can't do anything here with error return value */
-	}
-
+	git_stream_free(s->io);
 	git__free(s->url);
 	git__free(s);
 }
@@ -196,14 +136,24 @@ static int ssh_stream_alloc(
 	ssh_subtransport *t,
 	const char *url,
 	const char *cmd,
+	const char *host,
+	const char *port,
 	git_smart_subtransport_stream **stream)
 {
+	int error;
+	git_buf buf = GIT_BUF_INIT;
 	ssh_stream *s;
 
 	assert(stream);
 
+	if (gen_proto(&buf, cmd, url) < 0)
+		return -1;
+
 	s = git__calloc(sizeof(ssh_stream), 1);
 	GITERR_CHECK_ALLOC(s);
+
+	if ((error = git_libssh2_stream_new(&s->io, host, port, git_buf_detach(&buf))) < 0)
+		return error;
 
 	s->parent.subtransport = &t->parent;
 	s->parent.read = ssh_stream_read;
@@ -453,19 +403,10 @@ static int _git_ssh_setup_conn(
 	const char *default_port="22";
 	int auth_methods, error = 0;
 	ssh_stream *s;
+	git_libssh2_stream *st;
 	git_cred *cred = NULL;
-	LIBSSH2_SESSION* session=NULL;
-	LIBSSH2_CHANNEL* channel=NULL;
 
 	t->current_stream = NULL;
-
-	*stream = NULL;
-	if (ssh_stream_alloc(t, url, cmd, stream) < 0)
-		return -1;
-
-	s = (ssh_stream *)*stream;
-	s->session = NULL;
-	s->channel = NULL;
 
 	if (!git__prefixcmp(url, prefix_ssh)) {
 		if ((error = gitno_extract_url_parts(&host, &port, &path, &user, &pass, url, default_port)) < 0)
@@ -477,42 +418,25 @@ static int _git_ssh_setup_conn(
 		GITERR_CHECK_ALLOC(port);
 	}
 
-	if ((error = gitno_connect(&s->socket, host, port, 0)) < 0)
-		goto done;
+	*stream = NULL;
+	if (ssh_stream_alloc(t, url, cmd, host, port, stream) < 0)
+		return -1;
 
-	if ((error = _git_ssh_session_create(&session, s->socket)) < 0)
+	s = (ssh_stream *)*stream;
+	st = (git_libssh2_stream *) s->io;
+
+	if ((error = git_stream_connect(s->io)) < 0)
 		goto done;
 
 	if (t->owner->certificate_check_cb != NULL) {
-		git_cert_hostkey cert = { 0 }, *cert_ptr;
-		const char *key;
+		git_cert *cert;
 
-		cert.cert_type = GIT_CERT_HOSTKEY_LIBSSH2;
-
-		key = libssh2_hostkey_hash(session, LIBSSH2_HOSTKEY_HASH_SHA1);
-		if (key != NULL) {
-			cert.type |= GIT_CERT_SSH_SHA1;
-			memcpy(&cert.hash_sha1, key, 20);
-		}
-
-		key = libssh2_hostkey_hash(session, LIBSSH2_HOSTKEY_HASH_MD5);
-		if (key != NULL) {
-			cert.type |= GIT_CERT_SSH_MD5;
-			memcpy(&cert.hash_md5, key, 16);
-		}
-
-		if (cert.type == 0) {
-			giterr_set(GITERR_SSH, "unable to get the host key");
-			error = -1;
-			goto done;
-		}
+		if ((error = git_stream_certificate(&cert, s->io)) < 0)
+			return error;
 
 		/* We don't currently trust any hostkeys */
 		giterr_clear();
-
-		cert_ptr = &cert;
-
-		error = t->owner->certificate_check_cb((git_cert *) cert_ptr, 0, host, t->owner->message_cb_payload);
+		error = t->owner->certificate_check_cb(cert, 0, host, t->owner->message_cb_payload);
 		if (error < 0) {
 			if (!giterr_last())
 				giterr_set(GITERR_NET, "user cancelled hostkey check");
@@ -536,13 +460,13 @@ static int _git_ssh_setup_conn(
 			goto done;
 	}
 
-	if ((error = list_auth_methods(&auth_methods, session, user)) < 0)
+	if ((error = list_auth_methods(&auth_methods, st->session, user)) < 0)
 		goto done;
 
 	error = GIT_EAUTH;
 	/* if we already have something to try */
 	if (cred && auth_methods & cred->credtype)
-		error = _git_ssh_authenticate_session(session, cred);
+		error = _git_ssh_authenticate_session(st->session, cred);
 
 	while (error == GIT_EAUTH) {
 		if (cred) {
@@ -559,23 +483,20 @@ static int _git_ssh_setup_conn(
 			goto done;
 		}
 
-		error = _git_ssh_authenticate_session(session, cred);
+		error = _git_ssh_authenticate_session(st->session, cred);
 	}
 
 	if (error < 0)
 		goto done;
 
-	channel = libssh2_channel_open_session(session);
-	if (!channel) {
+	st->channel = libssh2_channel_open_session(st->session);
+	if (!st->channel) {
 		error = -1;
-		ssh_error(session, "Failed to open SSH channel");
+		ssh_error(st->session, "Failed to open SSH channel");
 		goto done;
 	}
 
-	libssh2_channel_set_blocking(channel, 1);
-
-	s->session = session;
-	s->channel = channel;
+	libssh2_channel_set_blocking(st->channel, 1);
 
 	t->current_stream = s;
 
@@ -583,9 +504,6 @@ done:
 	if (error < 0) {
 		if (*stream)
 			ssh_stream_free(*stream);
-
-		if (session)
-			libssh2_session_free(session);
 	}
 
 	if (cred)
