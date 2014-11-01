@@ -49,6 +49,9 @@ static void net_set_error(const char *str)
 
 static int close_socket(GIT_SOCKET s)
 {
+	if (s == INVALID_SOCKET)
+		return 0;
+
 #ifdef GIT_WIN32
 	if (SOCKET_ERROR == closesocket(s))
 		return -1;
@@ -163,8 +166,12 @@ ssize_t socket_read(git_stream *stream, void *data, size_t len)
 int socket_close(git_stream *stream)
 {
 	git_socket_stream *st = (git_socket_stream *) stream;
+	int error;
 
-	return close_socket(st->s);
+	error = close_socket(st->s);
+	st->s = INVALID_SOCKET;
+
+	return error;
 }
 
 void socket_free(git_stream *stream)
@@ -198,6 +205,7 @@ int git_socket_stream_new(git_stream **out, const char *host, const char *port)
 	st->parent.read = socket_read;
 	st->parent.close = socket_close;
 	st->parent.free = socket_free;
+	st->s = INVALID_SOCKET;
 
 	*out = (git_stream *) st;
 	return 0;
