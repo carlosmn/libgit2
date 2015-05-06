@@ -88,9 +88,13 @@ struct git_odb_backend {
 	 *
 	 * This optional method will be called by pack-objects in order to try to avoid createing
 	 * a delta which we already have in the odb.
+	 *
+	 * tgt is the object we want and src is the base we would like
+	 * to have.
 	 */
 	int (* read_delta)(
-		git_odb_backend *, git_oid *src, git_oid *tgt);
+		void **data, size_t *len,
+		git_odb_backend *, const git_oid *tgt, const git_oid *src);
 
 	void (* free)(git_odb_backend *);
 };

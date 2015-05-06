@@ -594,6 +594,63 @@ static int pack_backend__writepack(struct git_odb_writepack **out,
 	return 0;
 }
 
+static int pack_backend__read_delta(void **data, size_t *len_p, git_odb_backend *_backend,
+				    const  git_oid *tgt, const git_oid *src)
+{
+	struct pack_backend *backend;
+	struct git_pack_entry e, src_e;
+	git_mwindow *w_curs = NULL;
+	git_off_t base_off, curpos;
+	git_rawobj raw;
+	size_t size;
+	git_otype type;
+	int error;
+
+	assert(_backend && src && tgt);
+
+	backend = (struct pack_backend *) _backend;
+
+	printf("first %s\n", git_oid_tostr_s(tgt));
+	if ((error = pack_entry_find(&e, backend, tgt)) < 0)
+		return error;
+
+	puts("second");
+	if ((error = pack_entry_find(&src_e, backend, src)) < 0)
+		return error;
+
+	printf("got as fara s here\n");
+	/* Hopefuly just for now, the packfiles of these two have to agree */
+	if (e.p != src_e.p) {
+		printf("different packfile\n");
+		return GIT_ENOTFOUND;
+	}
+
+	curpos = e.offset;
+	error = git_packfile_unpack_header(&size, &type, &e.p->mwf, &w_curs, &curpos);
+	git_mwindow_close(&w_curs);
+
+	if (error < 0)
+		return error;
+
+	curpos = e.offset;
+	base_off = get_delta_base(e.p, &w_curs, &curpos, type, e.offset);
+	git_mwindow_close(&w_curs);
+
+	/* Check that the base for src is indeed tgt */
+	if (base_off != src_e.offset) {
+		printf("diff offset: %zu <-> %zu\n", base_off, src_e.offset);
+		return GIT_ENOTFOUND;
+	}
+
+	if ((error = packfile_unpack_compressed(&raw, e.p, &w_curs, &curpos, size, type)) < 0)
+		return error;
+
+	*data  = raw.data;
+	*len_p = raw.len;
+
+	return 0;
+}
+
 static void pack_backend__free(git_odb_backend *_backend)
 {
 	struct pack_backend *backend;
@@ -633,6 +690,7 @@ static int pack_backend__alloc(struct pack_backend **out, size_t initial_size)
 	backend->parent.refresh = &pack_backend__refresh;
 	backend->parent.foreach = &pack_backend__foreach;
 	backend->parent.writepack = &pack_backend__writepack;
+	backend->parent.read_delta = &pack_backend__read_delta;
 	backend->parent.free = &pack_backend__free;
 
 	*out = backend;

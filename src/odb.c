@@ -1131,6 +1131,29 @@ int git_odb_refresh(struct git_odb *db)
 	return 0;
 }
 
+int git_odb_read_delta(void **data, size_t *len, git_odb *db, const git_oid *tgt, const git_oid *src)
+{
+	size_t i;
+
+	assert(db);
+
+	for (i = 0; i < db->backends.length; ++i) {
+		backend_internal *internal = git_vector_get(&db->backends, i);
+		git_odb_backend *b = internal->backend;
+
+		if (b->read_delta != NULL) {
+			int error = b->read_delta(data, len, b, tgt, src);
+			printf("asked about read_delta\n");
+			if (error == GIT_ENOTFOUND)
+				continue;
+
+			return error;
+		}
+	}
+
+	return GIT_ENOTFOUND;
+}
+
 int git_odb__error_notfound(const char *message, const git_oid *oid)
 {
 	if (oid != NULL) {

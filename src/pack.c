@@ -473,7 +473,6 @@ int git_packfile_unpack_header(
 	*curpos += used;
 	return 0;
 }
-
 int git_packfile_resolve_header(
 		size_t *size_p,
 		git_otype *type_p,

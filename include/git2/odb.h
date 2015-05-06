@@ -341,6 +341,9 @@ GIT_EXTERN(int) git_odb_write_pack(
 	git_transfer_progress_cb progress_cb,
 	void *progress_payload);
 
+GIT_EXTERN(int) git_odb_read_delta(void **data, size_t *len, git_odb *db, const git_oid *src, const git_oid *tgt);
+
+
 /**
  * Determine the object-ID (sha1 hash) of a data buffer
  *

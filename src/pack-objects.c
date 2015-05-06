@@ -743,6 +743,10 @@ static int try_delta(git_packbuilder *pb, struct unpacked *trg,
 
 	*ret = 0;
 
+	if (!git_odb_read_delta(&delta_buf, &delta_size, pb->odb, &trg_object->id, &src_object->id)) {
+		printf("did find delta\n");
+	}
+	
 	/* TODO: support reuse-delta */
 
 	/* Let's not bust the allowed depth. */
