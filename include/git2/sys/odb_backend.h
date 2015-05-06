@@ -83,6 +83,15 @@ struct git_odb_backend {
 		git_odb_writepack **, git_odb_backend *, git_odb *odb,
 		git_transfer_progress_cb progress_cb, void *progress_payload);
 
+	/**
+	 * Retrieve a raw delta from the odb
+	 *
+	 * This optional method will be called by pack-objects in order to try to avoid createing
+	 * a delta which we already have in the odb.
+	 */
+	int (* read_delta)(
+		git_odb_backend *, git_oid *src, git_oid *tgt);
+
 	void (* free)(git_odb_backend *);
 };
 
