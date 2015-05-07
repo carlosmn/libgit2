@@ -265,6 +265,34 @@ static void winhttp_stream_close(winhttp_stream *s)
 	s->sent_request = 0;
 }
 
+/**
+ * Extract the url and password from a URL. The outputs are pointers
+ * into the input.
+ */
+static int userpass_from_url(wchar_t * const *user, int *user_len,
+			     wchar_t * const *pass, int *pass_len,
+			     const wchar_t *url, int url_len)
+{
+	URL_COMPONENTS components = { 0 };
+
+	components.dwStructSize = sizeof(components);
+	/* These tell WinHttpCrackUrl that we're interested in the fields */
+	components.dwUserNameLength = 1;
+	components.dwPasswordLength = 1;
+
+	if (!WinHttpCrackUrl(url, url_len, 0, &components)) {
+		giterr_set(GITERR_OS, "failed to extract user/pass from url");
+		return -1;
+	}
+
+	*user     = components.lpszUserName;
+	*user_len = components.dwUserNameLength;
+	*pass     = components.lpszPassword;
+	*pass_len = components.dwPasswordLength;
+
+	return 0;
+}
+
 static int winhttp_stream_connect(winhttp_stream *s)
 {
 	winhttp_subtransport *t = OWNING_SUBTRANSPORT(s);
@@ -316,7 +344,8 @@ static int winhttp_stream_connect(winhttp_stream *s)
 
 	if (proxy_url) {
 		WINHTTP_PROXY_INFO proxy_info;
-		wchar_t *proxy_wide;
+		wchar_t *proxy_wide, *proxy_user, *proxy_pass;
+		int user_len, pass_len;
 
 		/* Convert URL to wide characters */
 		int proxy_wide_len = git__utf8_to_16_alloc(&proxy_wide, proxy_url);
@@ -342,6 +371,35 @@ static int winhttp_stream_connect(winhttp_stream *s)
 			giterr_set(GITERR_OS, "Failed to set proxy");
 			git__free(proxy_wide);
 			goto on_error;
+		}
+
+		if (!userpass_from_url(&proxy_user, &user_len,
+				       &proxy_pass, &pass_len,
+				       proxy_wide, proxy_wide_len)) {
+			wchar_t *user_copy, *pass_copy;
+			BOOL ret;
+
+			user_copy = git_calloc(user_len + 1, sizeof(wchar_t));
+			GITERR_CHECK_ALLOC(user_copy);
+			pass_copy = git_calloc(pass_len + 1, sizeof(wchar_t));
+			GITERR_CHECK_ALLOC(pass_copy);
+
+			memcpy(user_copy, proxy_user, user_len * sizeof(wchar_t));
+			memcpy(pass_copy, proxy_pass, pass_len * sizeof(wchar_t));
+
+			if (!WinHttpSetCredentials(s->request, WINHTTP_AUTH_TARGET_PROXY,
+						   WINHTTP_AUTH_SCHEME_BASIC,
+						   user_copy, pass_copy, NULL)) {
+				giterr_set(GITERR_OS, "failed to set proxy auth");
+				git__free(proxy_wide);
+				git__free(user_copy);
+				git__free(pass_copy);
+				goto on_error;
+			}
+
+			git__free(user_copy);
+			git__free(pass_copy);
+
 		}
 
 		git__free(proxy_wide);
