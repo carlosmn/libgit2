@@ -30,11 +30,16 @@ GIT_EXTERN(int) git_task_finished(git_task *task);
  *
  * Wait for the thread which is running the task to finish.
  *
- * @param if not `NULL` the task's exit code will be written into this
- * variable
+ * @param the task's exit code will be written into this variable
+ * @param the task's result value will be written into this value
  * @param task the task to wait for
  * @return 0 on success or an error code
  */
-GIT_EXTERN(int) git_task_join(int *exit_code, git_task *task);
+GIT_EXTERN(int) git_task_join(int *exit_code, void **exit_value, git_task *task);
+
+/**
+ * Free a task
+ */
+GIT_EXTERN(void) git_task_free(git_task *task);
 
 #endif

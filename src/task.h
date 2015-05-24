@@ -18,12 +18,14 @@ struct git_task {
 	git_thread thread;
 
 	git_task_finished_cb finished_cb;
-	void *finished_payload;
+	void *payload;
 	
 	int exit_code;
+	void *exit_value;
 	unsigned int finished;
-};
 
+	void (*on_free)(git_task *task);
+};
 
 int git_task_new(git_task **out, git_task_entrypoint entry, git_task_finished_cb cb, void *payload);
 int git_task_start(git_task *task);

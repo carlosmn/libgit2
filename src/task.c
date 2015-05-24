@@ -25,7 +25,7 @@ int git_task_new(git_task **out, git_task_entrypoint entry,  git_task_finished_c
 
 	task->entry = entry;
 	task->finished_cb = cb;
-	task->finished_payload = payload;
+	task->payload = payload;
 
 	*out = task;
 	return 0;
@@ -36,7 +36,7 @@ static void *call_entry(void *payload)
 	git_task *task = payload;
 
 	task->exit_code = task->entry(task);
-	task->finished_cb(task->finished_payload);
+	task->finished_cb(task->payload);
 
 	return NULL;
 }
@@ -74,4 +74,10 @@ int git_task_join(int *exit_code, git_task *task)
 
 	return seterr_nothreads();
 #endif
+}
+
+void git_task_free(git_task *task)
+{
+	task->on_free(task);
+	git__free(task);
 }

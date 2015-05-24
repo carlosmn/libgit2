@@ -551,3 +551,62 @@ cleanup:
 	git_repository_free(src);
 	return error;
 }
+
+struct clone_async_data {
+	const char *url;
+	const char *local_path;
+	const git_clone_options *options;
+};
+
+/* On async, we can't rely on the options struct outliving the clone function */
+static git_clone_options *dup_options(git_clone_options *input)
+{
+	git_clone_options *opts;
+
+	opts = git__calloc(1, sizeof(git_clone_options));
+	if (!opts)
+		return NULL;
+
+	memcpy(&opts, input, sizeof(git_clone_options));
+	if (input->checkout_branch) {
+		opts->checkout_branch = git__strdup(input->checkout_branch);
+		if (!input->checkout_branch) {
+			git__free(opts);
+			return NULL;
+		}
+	}
+
+	return opts;
+}
+
+static int clone_task(git_task *task)
+{
+	int error;
+	git_repository *repo;
+	clone_async_data *data = task->payload;
+
+	return git_clone(&repo, data->url, data->local_path, data->options);
+}
+
+int git_clone_async(git_task **out, const char *url, const char *local_path, const git_clone_options *_options, git_task_finshed_cb finished_cb)
+{
+	int error;
+	git_task *task;
+	git_clone_options *options = dup_options(_options);
+	clone_async_data data = {
+		url,
+		local_path,
+		options,
+	};
+
+	if (!options) {
+		giterr_set_oom();
+		return -1;
+	}
+
+	if ((error = git_task_new(&task, clone_task, finished_cb, &data)) < 0)
+		return error;
+
+	*out = task;
+	return 0;
+}
