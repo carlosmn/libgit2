@@ -27,7 +27,32 @@ struct git_task {
 	void (*on_free)(git_task *task);
 };
 
+/**
+ * Allocate and initialize a task
+ *
+ * The new task won't be scheduled yet.
+ *
+ * @param out the task
+ * @param entry the entry-point for this task
+ * @param cb will be called when the entry point returns
+ * @param payload data to keep around
+ */
 int git_task_new(git_task **out, git_task_entrypoint entry, git_task_finished_cb cb, void *payload);
+
+/**
+ * Schedule the task for execution
+ */
 int git_task_start(git_task *task);
+
+/**
+ * Join the task's thread
+ *
+ * Wait for the thread which is running the task to finish.
+ *
+ * @param the task's exit code will be written into this variable
+ * @param task the task to wait for
+ * @return 0 on success or an error code
+ */
+int git_task_join(int *exit_code, git_task *task);
 
 #endif

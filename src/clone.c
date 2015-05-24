@@ -23,6 +23,7 @@
 #include "path.h"
 #include "repository.h"
 #include "odb.h"
+#include "task.h"
 
 static int clone_local_into(git_repository *repo, git_remote *remote, const git_fetch_options *fetch_opts, const git_checkout_options *co_opts, const char *branch, int link);
 
@@ -556,10 +557,11 @@ struct clone_async_data {
 	const char *url;
 	const char *local_path;
 	const git_clone_options *options;
+	git_repository *repo;
 };
 
 /* On async, we can't rely on the options struct outliving the clone function */
-static git_clone_options *dup_options(git_clone_options *input)
+static git_clone_options *dup_options(const git_clone_options *input)
 {
 	git_clone_options *opts;
 
@@ -581,19 +583,17 @@ static git_clone_options *dup_options(git_clone_options *input)
 
 static int clone_task(git_task *task)
 {
-	int error;
-	git_repository *repo;
-	clone_async_data *data = task->payload;
+	struct clone_async_data *data = task->payload;
 
-	return git_clone(&repo, data->url, data->local_path, data->options);
+	return git_clone(&data->repo, data->url, data->local_path, data->options);
 }
 
-int git_clone_async(git_task **out, const char *url, const char *local_path, const git_clone_options *_options, git_task_finshed_cb finished_cb)
+int git_clone_async(git_task **out, const char *url, const char *local_path, const git_clone_options *_options, git_task_finished_cb finished_cb)
 {
 	int error;
 	git_task *task;
 	git_clone_options *options = dup_options(_options);
-	clone_async_data data = {
+	struct clone_async_data data = {
 		url,
 		local_path,
 		options,
@@ -610,3 +610,16 @@ int git_clone_async(git_task **out, const char *url, const char *local_path, con
 	*out = task;
 	return 0;
 }
+
+int git_clone_join(git_repository **out, git_task *task)
+{
+	int exit_code, error;
+	struct clone_async_data *data = task->payload;
+
+	if(!task->finished && (error = git_task_join(&exit_code, task)) < 0)
+		return error;
+
+	*out = data->repo;
+	return exit_code;
+}
+
