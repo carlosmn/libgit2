@@ -51,6 +51,7 @@
 #include "git2/revert.h"
 #include "git2/revparse.h"
 #include "git2/revwalk.h"
+#include "git2/rx.h"
 #include "git2/signature.h"
 #include "git2/stash.h"
 #include "git2/status.h"
