@@ -43,6 +43,11 @@ int git_subject_on_next(git_subject *subj, git_message *msg)
 	git_observable *observable;
 	git_subscription *subscription;
 
+	if (subj->done) {
+		giterr_set(GITERR_INVALID, "cannot send message on finished stream");
+		return -1;
+	}
+
 	git_vector_foreach(&subj->observables, i, observable) {
 		git_vector_foreach(&observable->subscribers, j, subscription) {
 			subscription->observer->on_next(subscription->observer, msg);
@@ -58,11 +63,18 @@ int git_subject_on_error(git_subject *subj)
 	git_observable *observable;
 	git_subscription *subscription;
 
+	if (subj->done) {
+		giterr_set(GITERR_INVALID, "cannot send error on finished stream");
+		return -1;
+	}
+
 	git_vector_foreach(&subj->observables, i, observable) {
 		git_vector_foreach(&observable->subscribers, j, subscription) {
 			subscription->observer->on_error(subscription->observer);
 		}
 	}
+
+	subj->done = true;
 
 	return 0;
 }
@@ -73,11 +85,18 @@ int git_subject_on_completed(git_subject *subj)
 	git_observable *observable;
 	git_subscription *subscription;
 
+	if (subj->done) {
+		giterr_set(GITERR_INVALID, "cannot send message on finished stream");
+		return -1;
+	}
+
 	git_vector_foreach(&subj->observables, i, observable) {
 		git_vector_foreach(&observable->subscribers, j, subscription) {
 			subscription->observer->on_completed(subscription->observer);
 		}
 	}
+
+	subj->done = true;
 
 	return 0;
 }
@@ -115,6 +134,21 @@ static int add_subscription(git_observable *observable, git_subscription *sub)
 	return 0;
 }
 
+static int remove_subscription(git_observable *observable, git_subscription *sub)
+{
+	size_t i;
+	git_subscription *s;
+
+	git_vector_foreach(&observable->subscribers, i, s) {
+		if (s == sub) {
+			git_vector_remove(&observable->subscribers, i);
+			return 0;
+		}
+	}
+
+	return GIT_ENOTFOUND;
+}
+
 int git_observable_subscribe(git_subscription **out, git_observable *observable, git_observer *observer)
 {
 	int error;
@@ -149,6 +183,7 @@ void git_observable_free(git_observable *obs)
 
 void git_subscription_dispose(git_subscription *sub)
 {
+	remove_subscription(sub->observable, sub);
 	git_observable_free(sub->observable);
 	git__free(sub);
 }

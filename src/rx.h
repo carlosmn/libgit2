@@ -15,6 +15,8 @@ struct git_subject {
 	git_refcount rc;
 
 	git_vector observables;
+	/* Whether the stream is finished */
+	bool done;
 };
 
 struct git_observable {
