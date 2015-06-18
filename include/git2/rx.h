@@ -12,23 +12,16 @@
 struct git_observer;
 
 /**
- * A message sent to an observer
- *
- * Consumers should generally not assume that the contents will be
- * valid beyond the on_next callback.
+ * Messages which may be sent to observers
  */
-typedef struct {
+typedef enum {
 	/**
-	 * The type of message
+	 * No message
 	 */
-	int type;
-	/**
-	 * A pointer to the data
-	 */
-	void *data;
-}git_message;
+	GIT_MESSAGE_UNIT,
+} git_message_t;
 
-typedef int (*git_on_next_fn)(struct git_observer *obs, git_message *msg);
+typedef int (*git_on_next_fn)(struct git_observer *obs, git_message_t type, void *data);
 typedef int (*git_on_error_fn)(struct git_observer *obs);
 typedef int (*git_on_completed_fn)(struct git_observer *obs);
 
@@ -69,7 +62,7 @@ GIT_EXTERN(int) git_subject_new(git_subject **out);
 /**
  * Send a message to a subject
  */
-GIT_EXTERN(int) git_subject_on_next(git_subject *subj, git_message *msg);
+GIT_EXTERN(int) git_subject_on_next(git_subject *subj, git_message_t type, void *data);
 
 /**
  * Signal a channel as completed

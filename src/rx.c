@@ -37,7 +37,7 @@ void git_subject_free(git_subject *subj)
 	GIT_REFCOUNT_DEC(subj, subject_free);
 }
 
-int git_subject_on_next(git_subject *subj, git_message *msg)
+int git_subject_on_next(git_subject *subj, git_message_t type, void *data)
 {
 	size_t i, j;
 	git_observable *observable;
@@ -50,7 +50,7 @@ int git_subject_on_next(git_subject *subj, git_message *msg)
 
 	git_vector_foreach(&subj->observables, i, observable) {
 		git_vector_foreach(&observable->subscribers, j, subscription) {
-			subscription->observer->on_next(subscription->observer, msg);
+			subscription->observer->on_next(subscription->observer, type, data);
 		}
 	}
 

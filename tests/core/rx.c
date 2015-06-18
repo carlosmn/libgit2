@@ -21,12 +21,12 @@ void test_core_rx__cleanup(void)
 	git_subject_free(subject);
 }
 
-static int on_next(git_observer *observer, git_message *msg)
+static int on_next(git_observer *observer, git_message_t type, void *data)
 {
 	GIT_UNUSED(observer);
 
-	cl_assert_equal_i(1, msg->type);
-	cl_assert_equal_p(&dummy_val, msg->data);
+	cl_assert_equal_i(42, type);
+	cl_assert_equal_p(&dummy_val, data);
 	on_next_called = true;
 
 	return 0;
@@ -55,7 +55,6 @@ void test_core_rx__successful_messages(void)
 	git_observer observer;
 	git_observable *observable;
 	git_subscription *subscription;
-	git_message message;
 
 	observer.on_next      = on_next;
 	observer.on_completed = on_completed;
@@ -64,14 +63,12 @@ void test_core_rx__successful_messages(void)
 	cl_git_pass(git_observable_new(&observable, subject));
 	cl_git_pass(git_observable_subscribe(&subscription, observable, &observer));
 
-	message.type = 1;
-	message.data = &dummy_val;
-	cl_git_pass(git_subject_on_next(subject, &message));
+	cl_git_pass(git_subject_on_next(subject, 42, &dummy_val));
 
 	cl_git_pass(git_subject_on_completed(subject));
 
 	/* Can't send after finishing the stream */
-	cl_git_fail(git_subject_on_next(subject, &message));
+	cl_git_fail(git_subject_on_next(subject, 42, &dummy_val));
 
 	cl_assert(on_next_called);
 	cl_assert(on_completed_called);
@@ -86,7 +83,6 @@ void test_core_rx__on_error(void)
 	git_observer observer;
 	git_observable *observable;
 	git_subscription *subscription;
-	git_message message;
 
 	observer.on_next      = on_next;
 	observer.on_completed = on_completed;
@@ -95,9 +91,7 @@ void test_core_rx__on_error(void)
 	cl_git_pass(git_observable_new(&observable, subject));
 	cl_git_pass(git_observable_subscribe(&subscription, observable, &observer));
 
-	message.type = 1;
-	message.data = &dummy_val;
-	cl_git_pass(git_subject_on_next(subject, &message));
+	cl_git_pass(git_subject_on_next(subject, 42, &dummy_val));
 
 	cl_git_pass(git_subject_on_error(subject));
 
@@ -113,10 +107,11 @@ void test_core_rx__on_error(void)
 }
 
 static int count;
-static int on_next_count(git_observer *obs, git_message *msg)
+static int on_next_count(git_observer *obs, git_message_t type, void *data)
 {
 	GIT_UNUSED(obs);
-	GIT_UNUSED(msg);
+	GIT_UNUSED(type);
+	GIT_UNUSED(data);
 
 	on_next_called = true;
 	count++;
@@ -129,7 +124,6 @@ void test_core_rx__subscribe_unsubscribe(void)
 	git_observer observer;
 	git_observable *observable;
 	git_subscription *subscription1, *subscription2;
-	git_message message;
 
 	observer.on_next      = on_next_count;
 	observer.on_completed = on_completed;
@@ -139,21 +133,18 @@ void test_core_rx__subscribe_unsubscribe(void)
 	cl_git_pass(git_observable_subscribe(&subscription1, observable, &observer));
 	cl_git_pass(git_observable_subscribe(&subscription2, observable, &observer));
 
-	message.type = 1;
-	message.data = &dummy_val;
-
 	/* We increment by two, as we've subscribed twice */
-	cl_git_pass(git_subject_on_next(subject, &message));
+	cl_git_pass(git_subject_on_next(subject, 42, &dummy_val));
 
 	/* Disposing of this subscription make us receive just one message now */
 	git_subscription_dispose(subscription1);
 
-	cl_git_pass(git_subject_on_next(subject, &message));
+	cl_git_pass(git_subject_on_next(subject, 42, &dummy_val));
 
 	git_subscription_dispose(subscription2);
 
 	/* This one plus the completion shouldn't be received by anybody */
-	cl_git_pass(git_subject_on_next(subject, &message));
+	cl_git_pass(git_subject_on_next(subject, 42, &dummy_val));
 	cl_git_pass(git_subject_on_completed(subject));
 
 	cl_assert(on_next_called);
