@@ -11,6 +11,7 @@
 #include "types.h"
 #include "oid.h"
 #include "object.h"
+#include "diff.h"
 
 /**
  * @file git2/commit.h
@@ -351,6 +352,25 @@ GIT_EXTERN(int) git_commit_amend(
 	const char *message_encoding,
 	const char *message,
 	const git_tree *tree);
+
+/**
+ * Create a diff of the changes between a commit and its parent(s).
+ *
+ * This generates a diff list between a commit and its parents.  For a
+ * non-merge commit, this is simply a shortcut for `git_diff_tree_to_tree`
+ * between the commit tree and the parent tree.  For a parent-less
+ * commit, this will generate a diff against the empty tree.  For a
+ * merge commit, this generates a diff that contains only files that
+ * do not match any of the parents' trees.
+ *
+ * @param diff A pointer to a git_diff pointer that will be allocated.
+ * @param commit A git_commit object to diff from
+ * @param opts Structure with options to influence diff or NULL for defaults.
+ */
+GIT_EXTERN(int) git_commit_diff(
+        git_diff **diff,
+        git_commit *commit,
+        const git_diff_options *opts);
 
 /** @} */
 GIT_END_DECL

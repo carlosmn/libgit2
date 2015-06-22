@@ -10,6 +10,7 @@
 #include "git2/repository.h"
 #include "git2/signature.h"
 #include "git2/sys/commit.h"
+#include "git2/diff.h"
 
 #include "common.h"
 #include "odb.h"
@@ -517,4 +518,45 @@ int git_commit_nth_gen_ancestor(
 
 	*ancestor = parent;
 	return 0;
+}
+
+int git_commit_diff(git_diff **diff, git_commit *commit, const git_diff_options *opts)
+{
+	int error;
+	bool simple_case = false;
+	git_tree *old_tree, *new_tree;
+	size_t parents;
+
+	parents = git_commit_parentcount(commit);
+
+	/* Simple */
+	if (parents == 0) {
+		simple_case = true;
+		old_tree = NULL; /* compare against the emtpy tree */
+	} else if (parents == 1) {
+		git_commit *parent;
+		simple_case = true;
+
+		if ((error = git_commit_parent(&parent, commit, 0)) < 0)
+			return error;
+
+		error = git_commit_tree(&old_tree, parent);
+		git_commit_free(parent);
+
+		if (error < 0)
+			return error;
+	}
+
+	if (simple_case) {
+		if ((error = git_commit_tree(&new_tree, commit)) < 0)
+			return error;
+
+		error = git_diff_tree_to_tree(diff, git_commit_owner(commit),
+					      old_tree, new_tree, opts);
+	} else {
+	}
+
+	git_tree_free(old_tree);
+	git_tree_free(new_tree);
+	return error;
 }
