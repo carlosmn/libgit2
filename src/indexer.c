@@ -332,6 +332,11 @@ GIT_INLINE(bool) has_entry(git_indexer *idx, git_oid *id)
 	return (k != kh_end(idx->pack->idx_cache));
 }
 
+/**
+ * Save the entries in the indexer structure.
+ *
+ * This function is not thread-safe.
+ */
 static int save_entry(git_indexer *idx, struct entry *entry, struct git_pack_entry *pentry, git_off_t entry_start)
 {
 	int i, error;
@@ -365,7 +370,15 @@ static int save_entry(git_indexer *idx, struct entry *entry, struct git_pack_ent
 	return 0;
 }
 
-static int hash_and_save(git_indexer *idx, git_rawobj *obj, git_off_t entry_start)
+/**
+ * Hash the object pointed to by `obj`, which exists at pack offset
+ * `entry_start`. Returns the entries we need to save (pass to
+ * `save_entry()`).
+ *
+ * This should be thread-safe.
+ */
+static int hash_entry(struct entry **entry_out, struct git_pack_entry **pentry_out,
+		      git_indexer *idx, git_rawobj *obj, git_off_t entry_start)
 {
 	git_oid oid;
 	size_t entry_size;
@@ -391,13 +404,29 @@ static int hash_and_save(git_indexer *idx, git_rawobj *obj, git_off_t entry_star
 	if (crc_object(&entry->crc, &idx->pack->mwf, entry_start, entry_size) < 0)
 		goto on_error;
 
-	return save_entry(idx, entry, pentry, entry_start);
+	*entry_out  = entry;
+	*pentry_out = pentry;
+
+	return 0;
 
 on_error:
 	git__free(pentry);
 	git__free(entry);
 	git__free(obj->data);
 	return -1;
+}
+
+static int hash_and_save(git_indexer *idx, git_rawobj *obj, git_off_t entry_start)
+{
+	int error;
+	struct entry *entry;
+	struct git_pack_entry *pentry = NULL;
+
+	if ((error = hash_entry(&entry, &pentry, idx, obj, entry_start)) < 0)
+		return error;
+
+	return save_entry(idx, entry, pentry, entry_start);
+
 }
 
 static int do_progress_callback(git_indexer *idx, git_transfer_progress *stats)
