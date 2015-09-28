@@ -842,6 +842,77 @@ static int fix_thin_pack(git_indexer *idx, git_transfer_progress *stats)
 	return 0;
 }
 
+#ifdef GIT_THREADS
+
+typedef struct {
+	int error;
+	struct entry *entry;
+	struct git_pack_entry *pentry;
+} delta_resolve_result;
+
+typedef struct {
+	int working;
+	git_indexer *idx;
+	struct delta_info *delta;
+	delta_resolve_result *result;
+
+	/*
+	 * Signaling this wakes up the main thread if it's waiting for
+	 * a thread to become available.
+	 */
+	git_cond progress_cond;
+	/*
+	 * These are used for each thread to wait for more work to be
+	 * given to them.
+	 */
+	git_cond cond;
+	git_mutex mutex;
+} delta_resolve_data;
+
+static void *resolve_worker(void *_data)
+{
+	delta_resolve_data *data = _data;
+
+	/* Do this in a loop */
+	return hash_entry(&data->result->entry, &data->result->pentry,
+			  data->idx, data->delta->delta_off);
+
+	return NULL;
+}
+
+static int resolve_deltas_parallel(git_indexer *idx, git_transfer_progress *stats)
+{
+	/* FIXME: allow setting the level of parallelism */
+	int parallelism = git_online_cpus();
+	delta_resolve_data *worker_data;
+	delta_resolve_result *results;
+	git_thread *threads;
+	git_cond delta_progress;
+	size_t i;
+
+	worker_data = git__calloc(parallelism, sizeof(delta_resolve_data));
+	GITERR_CHECK_ALLOC(worker_data);
+
+	results = git__calloc(parallelism, sizeof(delta_resolve_result));
+	GITERR_CHECK_ALLOC(results);
+
+	threads = git__calloc(parallelism, sizeof(delta_resolve_data));
+	GITERR_CHECK_ALLOC(threads);
+
+	/* Fill in the worker data with the data we will always have */
+	for (i = 0; i < idx->deltas.length; i++) {
+		worker_data[i].idx = idx;
+		worker_data[i].result = &results[i];
+		git_cond_init(&worker_data[i].cond);
+		if (git_mutex_init(&worker_data[i].mutex) < 0) {
+			giterr_set(GITERR_OS, "failed to initialize mutex");
+			return -1;
+		}
+	}
+}
+
+#endif
+
 static int resolve_deltas(git_indexer *idx, git_transfer_progress *stats)
 {
 	unsigned int i;
