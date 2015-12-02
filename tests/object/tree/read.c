@@ -73,3 +73,34 @@ void test_object_tree_read__two(void)
 	git_object_free(obj);
 	git_tree_free(tree);
 }
+
+void test_object_tree_read__bench(void)
+{
+	git_repository *repo;
+	git_revwalk *walk;
+	int iter, error;
+	git_oid id;
+
+	cl_git_pass(git_repository_open(&repo, "/Users/carlos/git/git"));
+	cl_git_pass(git_revwalk_new(&walk, repo));
+	cl_git_pass(git_revwalk_push_head(walk));
+
+	iter = 0;
+	while ((error = git_revwalk_next(&id, walk)) == 0) {
+		git_commit *commit;
+		git_tree *tree;
+		
+		iter++;
+
+		cl_git_pass(git_commit_lookup(&commit, repo, &id));
+		cl_git_pass(git_commit_tree(&tree, commit));
+
+		git_tree_free(tree);
+		git_commit_free(commit);
+	}
+
+	printf("iter %d\n", iter);
+
+	git_revwalk_free(walk);
+	git_repository_free(repo);
+}
