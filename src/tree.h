@@ -19,12 +19,13 @@ struct git_tree_entry {
 	uint16_t filename_len;
 	git_oid oid;
 	bool pooled;
-	char filename[GIT_FLEX_ARRAY];
+	const char *filename;
 };
 
 struct git_tree {
 	git_object object;
 	git_vector entries;
+	git_odb_object *odb_object;
 	git_pool pool;
 };
 

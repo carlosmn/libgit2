@@ -82,12 +82,34 @@ int git_tree_entry_icmp(const git_tree_entry *e1, const git_tree_entry *e2)
 }
 
 /**
- * Allocate either from the pool or from the system allocator
+ * Allocate a tree entry, using the poolin the tree which owns
+ * it. This is useful when reading trees, so we don't allocate a ton
+ * of small strings but can use the pool.
  */
-static git_tree_entry *alloc_entry_base(git_pool *pool, const char *filename, size_t filename_len)
+static git_tree_entry *alloc_entry_pooled(git_pool *pool, const char *filename, size_t filename_len)
 {
 	git_tree_entry *entry = NULL;
-	size_t tree_len;
+
+	if (filename_len > UINT16_MAX) {
+		giterr_set(GITERR_INVALID, "tree entry is over UINT16_MAX in length");
+		return NULL;
+	}
+
+	entry = git_pool_mallocz(pool, 1);
+	if (!entry)
+		return NULL;
+
+	entry->filename = filename;
+	entry->filename_len = filename_len;
+	entry->pooled = true;
+
+	return entry;
+}
+
+static git_tree_entry *alloc_entry_with_path(const char *filename)
+{
+	git_tree_entry *entry;
+	size_t tree_len, filename_len = strlen(filename);
 
 	if (filename_len > UINT16_MAX) {
 		giterr_set(GITERR_INVALID, "tree entry is over UINT16_MAX in length");
@@ -98,39 +120,15 @@ static git_tree_entry *alloc_entry_base(git_pool *pool, const char *filename, si
 	    GIT_ADD_SIZET_OVERFLOW(&tree_len, tree_len, 1))
 		return NULL;
 
-	entry = pool ? git_pool_malloc(pool, tree_len) :
-		       git__malloc(tree_len);
+	entry = git__malloc(tree_len);
 	if (!entry)
 		return NULL;
 
 	memset(entry, 0x0, sizeof(git_tree_entry));
-	memcpy(entry->filename, filename, filename_len);
-	entry->filename[filename_len] = 0;
+	memcpy(entry + sizeof(git_tree_entry), filename, filename_len + 1);
 	entry->filename_len = filename_len;
 
 	return entry;
-}
-
-/**
- * Allocate a tree entry, using the poolin the tree which owns
- * it. This is useful when reading trees, so we don't allocate a ton
- * of small strings but can use the pool.
- */
-static git_tree_entry *alloc_entry_pooled(git_pool *pool, const char *filename, size_t filename_len)
-{
-	git_tree_entry *entry = NULL;
-
-	if (!(entry = alloc_entry_base(pool, filename, filename_len)))
-		return NULL;
-
-	entry->pooled = true;
-
-	return entry;
-}
-
-static git_tree_entry *alloc_entry(const char *filename)
-{
-	return alloc_entry_base(NULL, filename, strlen(filename));
 }
 
 struct tree_key_search {
@@ -245,14 +243,17 @@ int git_tree_entry_dup(git_tree_entry **dest, const git_tree_entry *source)
 
 	assert(source);
 
+	/* Allocate enough for the entry and the path just after it */
 	GITERR_CHECK_ALLOC_ADD(&total_size, sizeof(git_tree_entry), source->filename_len);
-	GITERR_CHECK_ALLOC_ADD(&total_size, total_size, 1);
+	GITERR_CHECK_ALLOC_ADD(&total_size, total_size, 2);
 
 	copy = git__malloc(total_size);
 	GITERR_CHECK_ALLOC(copy);
 
-	memcpy(copy, source, total_size);
+	memcpy(copy, source, sizeof(git_tree_entry));
+	memcpy(copy + sizeof(git_tree_entry), source->filename, source->filename_len + 1);
 
+	copy->filename = (const char *)(copy + sizeof(git_tree_entry));
 	copy->pooled = 0;
 
 	*dest = copy;
@@ -268,6 +269,7 @@ void git_tree__free(void *_tree)
 	git_vector_foreach(&tree->entries, i, e)
 		git_tree_entry_free(e);
 
+	git_odb_object_free(tree->odb_object);
 	git_vector_free(&tree->entries);
 	git_pool_clear(&tree->pool);
 	git__free(tree);
@@ -422,9 +424,12 @@ int git_tree__parse(void *_tree, git_odb_object *odb_obj)
 	const char *buffer = git_odb_object_data(odb_obj);
 	const char *buffer_end = buffer + git_odb_object_size(odb_obj);
 
-	git_pool_init(&tree->pool, 1);
+	git_pool_init(&tree->pool, sizeof(git_tree_entry));
 	if (git_vector_init(&tree->entries, DEFAULT_TREE_SIZE, entry_sort_cmp) < 0)
 		return -1;
+
+	git_cached_obj_incref((git_cached_obj *)odb_obj);
+	tree->odb_object = odb_obj;
 
 	while (buffer < buffer_end) {
 		git_tree_entry *entry;
@@ -494,7 +499,7 @@ static int append_entry(
 	if (!valid_entry_name(bld->repo, filename))
 		return tree_error("Failed to insert entry. Invalid name for a tree entry", filename);
 
-	entry = alloc_entry(filename);
+	entry = alloc_entry_with_path(filename);
 	GITERR_CHECK_ALLOC(entry);
 
 	git_oid_cpy(&entry->oid, id);
@@ -726,7 +731,7 @@ int git_treebuilder_insert(
 	if (git_strmap_valid_index(bld->map, pos)) {
 		entry = git_strmap_value_at(bld->map, pos);
 	} else {
-		entry = alloc_entry(filename);
+		entry = alloc_entry_with_path(filename);
 		GITERR_CHECK_ALLOC(entry);
 
 		git_strmap_insert(bld->map, entry->filename, entry, error);
