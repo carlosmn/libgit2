@@ -11,6 +11,7 @@
 #include "filebuf.h"
 #include "vector.h"
 #include "idxmap.h"
+#include "idxbtree.h"
 #include "tree-cache.h"
 #include "git2/odb.h"
 #include "git2/index.h"
@@ -27,6 +28,7 @@ struct git_index {
 
 	git_vector entries;
 	git_idxmap *entries_map;
+	git_idxbtree *entries_tree;
 
 	git_mutex  lock;    /* lock held while entries is being changed */
 	git_vector deleted; /* deleted entries if readers > 0 */
