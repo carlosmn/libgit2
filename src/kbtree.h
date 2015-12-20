@@ -32,6 +32,23 @@
 #include <string.h>
 #include <stdint.h>
 
+/* Make sure we can use the right allocator and we're safe from overflow*/
+#ifndef kcalloc
+#define kcalloc(N,Z) calloc(N,Z)
+#endif
+#ifndef kmalloc
+#define kmalloc(Z) malloc(Z)
+#endif
+#ifndef krealloc
+#define krealloc(P,Z) realloc(P,Z)
+#endif
+#ifndef kreallocarray
+#define kreallocarray(P,N,Z) ((SIZE_MAX - N < Z) ? NULL : krealloc(P, (N*Z)))
+#endif
+#ifndef kfree
+#define kfree(P) free(P)
+#endif
+
 typedef struct {
 	int32_t is_internal:1, n:31;
 } kbnode_t;
@@ -51,16 +68,16 @@ typedef struct {
 	kbtree_##name##_t *kb_init_##name(int size)							\
 	{																	\
 		kbtree_##name##_t *b;											\
-		b = (kbtree_##name##_t*)calloc(1, sizeof(kbtree_##name##_t));	\
+		b = (kbtree_##name##_t*)kcalloc(1, sizeof(kbtree_##name##_t));	\
 		b->t = ((size - 4 - sizeof(void*)) / (sizeof(void*) + sizeof(key_t)) + 1) >> 1; \
 		if (b->t < 2) {													\
-			free(b); return 0;											\
+			kfree(b); return 0;											\
 		}																\
 		b->n = 2 * b->t - 1;											\
 		b->off_ptr = 4 + b->n * sizeof(key_t);							\
 		b->ilen = (4 + sizeof(void*) + b->n * (sizeof(void*) + sizeof(key_t)) + 3) >> 2 << 2; \
 		b->elen = (b->off_ptr + 3) >> 2 << 2;							\
-		b->root = (kbnode_t*)calloc(1, b->ilen);						\
+		b->root = (kbnode_t*)kcalloc(1, b->ilen);						\
 		++b->n_nodes;													\
 		return b;														\
 	}
@@ -69,24 +86,24 @@ typedef struct {
 		int i, max = 8;													\
 		kbnode_t *x, **top, **stack = 0;								\
 		if (b) {														\
-			top = stack = (kbnode_t**)calloc(max, sizeof(kbnode_t*));	\
+			top = stack = (kbnode_t**)kcalloc(max, sizeof(kbnode_t*));	\
 			*top++ = (b)->root;											\
 			while (top != stack) {										\
 				x = *--top;												\
-				if (x->is_internal == 0) { free(x); continue; }			\
+				if (x->is_internal == 0) { kfree(x); continue; }			\
 				for (i = 0; i <= x->n; ++i)								\
 					if (__KB_PTR(b, x)[i]) {							\
 						if (top - stack == max) {						\
 							max <<= 1;									\
-							stack = (kbnode_t**)realloc(stack, max * sizeof(kbnode_t*)); \
+							stack = (kbnode_t**)kreallocarray(stack, max, sizeof(kbnode_t*)); \
 							top = stack + (max>>1);						\
 						}												\
 						*top++ = __KB_PTR(b, x)[i];						\
 					}													\
-				free(x);												\
+				kfree(x);												\
 			}															\
 		}																\
-		free(b); free(stack);											\
+		kfree(b); kfree(stack);											\
 	} while (0)
 
 #define __kb_get_first(key_t, b, ret) do {	\
@@ -172,7 +189,7 @@ typedef struct {
 	static void __kb_split_##name(kbtree_##name##_t *b, kbnode_t *x, int i, kbnode_t *y) \
 	{																	\
 		kbnode_t *z;													\
-		z = (kbnode_t*)calloc(1, y->is_internal? b->ilen : b->elen);	\
+		z = (kbnode_t*)kcalloc(1, y->is_internal? b->ilen : b->elen);	\
 		++b->n_nodes;													\
 		z->is_internal = y->is_internal;								\
 		z->n = b->t - 1;												\
@@ -210,7 +227,7 @@ typedef struct {
 		r = b->root;													\
 		if (r->n == 2 * b->t - 1) {										\
 			++b->n_nodes;												\
-			s = (kbnode_t*)calloc(1, b->ilen);							\
+			s = (kbnode_t*)kcalloc(1, b->ilen);							\
 			b->root = s; s->is_internal = 1; s->n = 0;					\
 			__KB_PTR(b, s)[0] = r;										\
 			__kb_split_##name(b, s, 0, r);								\
@@ -262,7 +279,7 @@ typedef struct {
 				memmove(__KB_KEY(key_t, x) + i, __KB_KEY(key_t, x) + i + 1, (x->n - i - 1) * sizeof(key_t)); \
 				memmove(__KB_PTR(b, x) + i + 1, __KB_PTR(b, x) + i + 2, (x->n - i - 1) * sizeof(void*)); \
 				--x->n;													\
-				free(z);												\
+				kfree(z);												\
 				return __kb_delp_aux_##name(b, y, k, s);				\
 			}															\
 		}																\
@@ -290,7 +307,7 @@ typedef struct {
 				memmove(__KB_KEY(key_t, x) + i - 1, __KB_KEY(key_t, x) + i, (x->n - i) * sizeof(key_t)); \
 				memmove(__KB_PTR(b, x) + i, __KB_PTR(b, x) + i + 1, (x->n - i) * sizeof(void*)); \
 				--x->n;													\
-				free(xp);												\
+				kfree(xp);												\
 				xp = y;													\
 			} else if (i < x->n && (y = __KB_PTR(b, x)[i + 1])->n == b->t - 1) { \
 				__KB_KEY(key_t, xp)[xp->n++] = __KB_KEY(key_t, x)[i];	\
@@ -300,7 +317,7 @@ typedef struct {
 				memmove(__KB_KEY(key_t, x) + i, __KB_KEY(key_t, x) + i + 1, (x->n - i - 1) * sizeof(key_t)); \
 				memmove(__KB_PTR(b, x) + i + 1, __KB_PTR(b, x) + i + 2, (x->n - i - 1) * sizeof(void*)); \
 				--x->n;													\
-				free(y);												\
+				kfree(y);												\
 			}															\
 		}																\
 		return __kb_delp_aux_##name(b, xp, k, s);						\
@@ -315,7 +332,7 @@ typedef struct {
 			--b->n_nodes;												\
 			x = b->root;												\
 			b->root = __KB_PTR(b, x)[0];								\
-			free(x);													\
+			kfree(x);													\
 		}																\
 		return ret;														\
 	}																	\
@@ -332,13 +349,13 @@ typedef struct {
 #define __kb_traverse(key_t, b, __func) do {							\
 		int __kmax = 8;													\
 		__kbstack_t *__kstack, *__kp;									\
-		__kp = __kstack = (__kbstack_t*)calloc(__kmax, sizeof(__kbstack_t)); \
+		__kp = __kstack = (__kbstack_t*)kcalloc(__kmax, sizeof(__kbstack_t)); \
 		__kp->x = (b)->root; __kp->i = 0;								\
 		for (;;) {														\
 			while (__kp->x && __kp->i <= __kp->x->n) {					\
 				if (__kp - __kstack == __kmax - 1) {					\
 					__kmax <<= 1;										\
-					__kstack = (__kbstack_t*)realloc(__kstack, __kmax * sizeof(__kbstack_t)); \
+					__kstack = (__kbstack_t*)kreallocarray(__kstack, __kmax, sizeof(__kbstack_t)); \
 					__kp = __kstack + (__kmax>>1) - 1;					\
 				}														\
 				(__kp+1)->i = 0; (__kp+1)->x = __kp->x->is_internal? __KB_PTR(b, __kp->x)[__kp->i] : 0; \
@@ -350,7 +367,7 @@ typedef struct {
 				++__kp->i;												\
 			} else break;												\
 		}																\
-		free(__kstack);													\
+		kfree(__kstack);													\
 	} while (0)
 
 #define KBTREE_INIT(name, key_t, __cmp)			\
