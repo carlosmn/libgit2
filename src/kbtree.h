@@ -372,6 +372,9 @@ typedef struct {
 
 #define KBTREE_INIT(name, key_t, __cmp)			\
 	__KB_TREE_T(name)							\
+	__KB_TREE_IMPL(name, key_t, __cmp)
+
+#define __KB_TREE_IMPL(name, key_t, __cmp)				\
 	__KB_INIT(name, key_t)						\
 	__KB_GET_AUX1(name, key_t, __cmp)			\
 	__KB_GET(name, key_t)						\
