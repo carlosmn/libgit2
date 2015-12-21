@@ -27,7 +27,6 @@ struct git_index {
 	git_oid checksum;   /* checksum at the end of the file */
 
 	git_vector entries;
-	git_idxmap *entries_map;
 	git_idxbtree *entries_tree;
 
 	git_mutex  lock;    /* lock held while entries is being changed */

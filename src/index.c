@@ -27,34 +27,8 @@
 #include "git2/config.h"
 #include "git2/sys/index.h"
 
-GIT__USE_IDXMAP
-GIT__USE_IDXMAP_ICASE
-
 GIT__USE_IDXBTREE
 GIT__USE_IDXBTREE_ICASE
-
-#define INSERT_IN_MAP_EX(idx, map, e, err) do {				\
-		if ((idx)->ignore_case)					\
-			git_idxmap_icase_insert((khash_t(idxicase) *) (map), (e), (e), (err)); \
-		else							\
-			git_idxmap_insert((map), (e), (e), (err));	\
-	} while (0)
-
-#define INSERT_IN_MAP(idx, e, err) INSERT_IN_MAP_EX(idx, (idx)->entries_map, e, err)
-
-#define LOOKUP_IN_MAP(p, idx, k) do {					\
-		if ((idx)->ignore_case)					\
-			(p) = git_idxmap_icase_lookup_index((khash_t(idxicase) *) index->entries_map, (k)); \
-		else							\
-			(p) = git_idxmap_lookup_index(index->entries_map, (k)); \
-	} while (0)
-
-#define DELETE_IN_MAP(idx, e) do {					\
-		if ((idx)->ignore_case)					\
-			git_idxmap_icase_delete((khash_t(idxicase) *) (idx)->entries_map, (e)); \
-		else							\
-			git_idxmap_delete((idx)->entries_map, (e));	\
-	} while (0)
 
 #define INSERT_IN_TREE_EX(idx, tree, e) do {				\
 		if ((idx)->ignore_case)					\
@@ -66,10 +40,13 @@ GIT__USE_IDXBTREE_ICASE
 #define INSERT_IN_TREE(idx, e) INSERT_IN_TREE_EX(idx, (idx)->entries_tree, e)
 
 #define LOOKUP_IN_TREE(p, idx, k) do {					\
+		const git_index_entry * const *ptr;					\
 		if ((idx)->ignore_case)					\
-			(p) = git_idxbtree_icase_lookup_index((kbtree_t(idxicase) *) index->entries_tree, (k)); \
+			ptr = git_idxbtree_icase_lookup((kbtree_t(idxicase) *) index->entries_tree, (k)); \
 		else							\
-			(p) = git_idxbtree_lookup_index(index->entries_tree, (k)); \
+			ptr = git_idxbtree_lookup(index->entries_tree, (k)); \
+		if (ptr)						\
+			(p) = *ptr;					\
 	} while (0)
 
 #define DELETE_IN_TREE(idx, e) do {					\
@@ -480,7 +457,6 @@ int git_index_open(git_index **index_out, const char *index_path)
 	}
 
 	if (git_vector_init(&index->entries, 32, git_index_entry_cmp) < 0 ||
-		git_idxmap_alloc(&index->entries_map) < 0 ||
 		git_idxbtree_alloc(&index->entries_tree, GIT_BTREE_DEFAULT_SIZE) < 0 ||
 		git_vector_init(&index->names, 8, conflict_name_cmp) < 0 ||
 		git_vector_init(&index->reuc, 8, reuc_cmp) < 0 ||
@@ -519,7 +495,6 @@ static void index_free(git_index *index)
 	assert(!git_atomic_get(&index->readers));
 
 	git_index_clear(index);
-	git_idxmap_free(index->entries_map);
 	git_idxbtree_free(index->entries_tree);
 	git_vector_free(&index->entries);
 	git_vector_free(&index->names);
@@ -567,7 +542,6 @@ static int index_remove_entry(git_index *index, size_t pos)
 	if (entry != NULL)
 		git_tree_cache_invalidate_path(index->tree, entry->path);
 
-	DELETE_IN_MAP(index, entry);
 	DELETE_IN_TREE(index, entry);
 	error = git_vector_remove(&index->entries, pos);
 
@@ -585,20 +559,24 @@ static int index_remove_entry(git_index *index, size_t pos)
 int git_index_clear(git_index *index)
 {
 	int error = 0;
+	git_idxbtree *btree = NULL;
 
 	assert(index);
 
 	index->tree = NULL;
 	git_pool_clear(&index->tree_pool);
 
+	if (git_idxbtree_alloc(&btree, GIT_BTREE_DEFAULT_SIZE) < 0)
+		return -1;
+
 	if (git_mutex_lock(&index->lock) < 0) {
 		giterr_set(GITERR_OS, "Failed to lock index");
 		return -1;
 	}
 
-	git_idxmap_clear(index->entries_map);
 	while (!error && index->entries.length > 0)
 		error = index_remove_entry(index, index->entries.length - 1);
+	btree = git__swap(index->entries_tree, btree);
 	index_free_deleted(index);
 
 	git_index_reuc_clear(index);
@@ -607,6 +585,8 @@ int git_index_clear(git_index *index)
 	git_futils_filestamp_set(&index->stamp, NULL);
 
 	git_mutex_unlock(&index->lock);
+
+	//git_idxbtree_free(btree);
 
 	return error;
 }
@@ -874,22 +854,19 @@ const git_index_entry *git_index_get_byindex(
 const git_index_entry *git_index_get_bypath(
 	git_index *index, const char *path, int stage)
 {
-	khiter_t pos;
+	const git_index_entry *found = NULL;
 	git_index_entry key = {{ 0 }};
 
 	assert(index);
 
 	key.path = path;
 	GIT_IDXENTRY_STAGE_SET(&key, stage);
+	LOOKUP_IN_TREE(found, index, &key);
 
-	LOOKUP_IN_MAP(pos, index, &key);
-	//LOOKUP_IN_TREE(index, &key);
+	if (!found)
+		giterr_set(GITERR_INDEX, "Index does not contain %s", path);
 
-	if (git_idxmap_valid_index(index->entries_map, pos))
-		return git_idxmap_value_at(index->entries_map, pos);
-
-	giterr_set(GITERR_INDEX, "Index does not contain %s", path);
-	return NULL;
+	return found;
 }
 
 void git_index_entry__init_from_stat(
@@ -1371,7 +1348,6 @@ static int index_insert(
 		error = git_vector_insert_sorted(&index->entries, entry, index_no_dups);
 
 		if (error == 0) {
-			INSERT_IN_MAP(index, entry, error);
 			INSERT_IN_TREE(index, entry);
 		}
 	}
@@ -1609,7 +1585,6 @@ int git_index_remove(git_index *index, const char *path, int stage)
 	remove_key.path = path;
 	GIT_IDXENTRY_STAGE_SET(&remove_key, stage);
 
-	DELETE_IN_MAP(index, &remove_key);
 	DELETE_IN_TREE(index, &remove_key);
 
 	if (index_find(&position, index, path, 0, stage, false) < 0) {
@@ -2446,10 +2421,12 @@ static int parse_index(git_index *index, const char *buffer, size_t buffer_size)
 
 	assert(!index->entries.length);
 
+	/* TODO: convert to the btree part
 	if (index->ignore_case)
 		kh_resize(idxicase, (khash_t(idxicase) *) index->entries_map, header.entry_count);
 	else
 		kh_resize(idx, index->entries_map, header.entry_count);
+	*/
 
 	/* Parse all the entries */
 	for (i = 0; i < header.entry_count && buffer_size > INDEX_FOOTER_SIZE; ++i) {
@@ -2467,7 +2444,6 @@ static int parse_index(git_index *index, const char *buffer, size_t buffer_size)
 			goto done;
 		}
 
-		INSERT_IN_MAP(index, entry, error);
 		INSERT_IN_TREE(index, entry);
 
 		if (error < 0) {
@@ -2905,14 +2881,11 @@ int git_index_read_tree(git_index *index, const git_tree *tree)
 {
 	int error = 0;
 	git_vector entries = GIT_VECTOR_INIT;
-	git_idxmap *entries_map;
 	git_idxbtree *entries_tree;
 	read_tree_data data;
 	size_t i;
 	git_index_entry *e;
 
-	if (git_idxmap_alloc(&entries_map) < 0)
-		return -1;
 	if (git_idxbtree_alloc(&entries_tree, GIT_BTREE_DEFAULT_SIZE) < 0)
 		return -1;
 
@@ -2932,13 +2905,14 @@ int git_index_read_tree(git_index *index, const git_tree *tree)
 	if ((error = git_tree_walk(tree, GIT_TREEWALK_POST, read_tree_cb, &data)) < 0)
 		goto cleanup;
 
+	/* TODO: convert to the btree
 	if (index->ignore_case)
 		kh_resize(idxicase, (khash_t(idxicase) *) entries_map, entries.length);
 	else
 		kh_resize(idx, entries_map, entries.length);
+	*/
 
 	git_vector_foreach(&entries, i, e) {
-		INSERT_IN_MAP_EX(index, entries_map, e, error);
 		INSERT_IN_TREE_EX(index, entries_tree, e);
 
 		if (error < 0) {
@@ -2958,14 +2932,12 @@ int git_index_read_tree(git_index *index, const git_tree *tree)
 		error = -1;
 	} else {
 		git_vector_swap(&entries, &index->entries);
-		entries_map = git__swap(index->entries_map, entries_map);
 		entries_tree = git__swap(index->entries_tree, entries_tree);
 		git_mutex_unlock(&index->lock);
 	}
 
 cleanup:
 	git_vector_free(&entries);
-	git_idxmap_free(entries_map);
 	git_idxbtree_free(entries_tree);
 	if (error < 0)
 		return error;
@@ -2981,7 +2953,6 @@ int git_index_read_index(
 {
 	git_vector new_entries = GIT_VECTOR_INIT,
 		remove_entries = GIT_VECTOR_INIT;
-	git_idxmap *new_entries_map = NULL;
 	git_idxbtree *new_entries_tree = NULL;
 	git_iterator *index_iterator = NULL;
 	git_iterator *new_iterator = NULL;
@@ -2993,14 +2964,15 @@ int git_index_read_index(
 
 	if ((error = git_vector_init(&new_entries, new_index->entries.length, index->entries._cmp)) < 0 ||
 		(error = git_vector_init(&remove_entries, index->entries.length, NULL)) < 0 ||
-		(error = git_idxbtree_alloc(&new_entries_tree, index->entries.length)) < 0||
-		(error = git_idxmap_alloc(&new_entries_map)) < 0)
+		(error = git_idxbtree_alloc(&new_entries_tree, index->entries.length)) < 0)
 		goto done;
 
+	/* TODO: implement for btree
 	if (index->ignore_case)
 		kh_resize(idxicase, (khash_t(idxicase) *) new_entries_map, new_index->entries.length);
 	else
 		kh_resize(idx, new_entries_map, new_index->entries.length);
+	*/
 
 	opts.flags = GIT_ITERATOR_DONT_IGNORE_CASE;
 
@@ -3053,7 +3025,6 @@ int git_index_read_index(
 
 		if (add_entry) {
 			if ((error = git_vector_insert(&new_entries, add_entry)) == 0)
-				INSERT_IN_MAP_EX(index, new_entries_map, add_entry, error);
 				INSERT_IN_TREE_EX(index, new_entries_tree, add_entry);
 		}
 
@@ -3082,7 +3053,7 @@ int git_index_read_index(
 	git_index_reuc_clear(index);
 
 	git_vector_swap(&new_entries, &index->entries);
-	new_entries_map = git__swap(index->entries_map, new_entries_map);
+	new_entries_tree = git__swap(index->entries_tree, new_entries_tree);
 
 	git_vector_foreach(&remove_entries, i, entry) {
 		if (index->tree)
@@ -3094,7 +3065,6 @@ int git_index_read_index(
 	error = 0;
 
 done:
-	git_idxmap_free(new_entries_map);
 	git_idxbtree_free(new_entries_tree);
 	git_vector_free(&new_entries);
 	git_vector_free(&remove_entries);
