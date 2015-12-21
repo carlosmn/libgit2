@@ -31,13 +31,14 @@ GIT__USE_IDXBTREE
 GIT__USE_IDXBTREE_ICASE
 
 #define INSERT_IN_TREE_EX(idx, tree, e) do {				\
+		printf("%s: inserting '%s' (%p) into %p, size %d\n", __func__, (e)->path, e, tree, kb_size((tree))); \
 		if ((idx)->ignore_case)					\
 			git_idxbtree_icase_insert((kbtree_t(idxicase) *) (tree), (e)); \
 		else							\
 			git_idxbtree_insert((tree), (e));	\
 	} while (0)
 
-#define INSERT_IN_TREE(idx, e) INSERT_IN_TREE_EX(idx, (idx)->entries_tree, e)
+#define INSERT_IN_TREE(idx, e) INSERT_IN_TREE_EX((idx), (idx)->entries_tree, e)
 
 #define LOOKUP_IN_TREE(p, idx, k) do {					\
 		const git_index_entry * const *ptr;					\
@@ -50,6 +51,7 @@ GIT__USE_IDXBTREE_ICASE
 	} while (0)
 
 #define DELETE_IN_TREE(idx, e) do {					\
+		printf("%s: deleting '%s' (%p) from %p, size %d\n", __func__, (e)->path, e, (idx)->entries_tree, kb_size((idx)->entries_tree)); \
 		if ((idx)->ignore_case)					\
 			git_idxbtree_icase_delete((kbtree_t(idxicase) *) (idx)->entries_tree, (e)); \
 		else							\
@@ -538,11 +540,16 @@ static int index_remove_entry(git_index *index, size_t pos)
 {
 	int error = 0;
 	git_index_entry *entry = git_vector_get(&index->entries, pos);
+	const git_index_entry *found = NULL;
 
 	if (entry != NULL)
 		git_tree_cache_invalidate_path(index->tree, entry->path);
 
-	DELETE_IN_TREE(index, entry);
+	LOOKUP_IN_TREE(found, index, entry);
+
+	if (found)
+		DELETE_IN_TREE(index, found);
+
 	error = git_vector_remove(&index->entries, pos);
 
 	if (!error) {
@@ -1575,6 +1582,7 @@ int git_index_remove(git_index *index, const char *path, int stage)
 {
 	int error;
 	size_t position;
+	const git_index_entry *found = NULL;
 	git_index_entry remove_key = {{ 0 }};
 
 	if (git_mutex_lock(&index->lock) < 0) {
@@ -1585,7 +1593,10 @@ int git_index_remove(git_index *index, const char *path, int stage)
 	remove_key.path = path;
 	GIT_IDXENTRY_STAGE_SET(&remove_key, stage);
 
-	DELETE_IN_TREE(index, &remove_key);
+	LOOKUP_IN_TREE(found, index, &remove_key);
+
+	if (found)
+		DELETE_IN_TREE(index, found);
 
 	if (index_find(&position, index, path, 0, stage, false) < 0) {
 		giterr_set(
@@ -2913,7 +2924,9 @@ int git_index_read_tree(git_index *index, const git_tree *tree)
 	*/
 
 	git_vector_foreach(&entries, i, e) {
+		printf("%s: size before %i\n", __func__, kb_size(entries_tree));
 		INSERT_IN_TREE_EX(index, entries_tree, e);
+		printf("%s: size after %i\n", __func__, kb_size(entries_tree));
 
 		if (error < 0) {
 			giterr_set(GITERR_INDEX, "failed to insert entry into map");

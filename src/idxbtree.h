@@ -21,8 +21,6 @@
 __KB_TREE_T(idx)
 __KB_TREE_T(idxicase)
 
-typedef const git_index_entry *git_index_entry_p;
-
 typedef kbtree_t(idx) git_idxbtree;
 typedef kbtree_t(idxicase) git_idxbtree_icase;
 
@@ -43,6 +41,8 @@ GIT_INLINE(int) idxentry_icase_compare(const git_index_entry *a, const git_index
 
 	return ret;
 }
+
+typedef const git_index_entry *git_index_entry_p;
 
 #define idxentry_compare_wrap(a, b) idxentry_compare((a), (b))
 #define idxentry_icase_compare_wrap(a, b) idxentry_icase_compare((a), (b))
