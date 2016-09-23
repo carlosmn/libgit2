@@ -93,7 +93,7 @@ int git_pqueue_insert(git_pqueue *pq, void *item)
 		(void)git_pqueue_pop(pq);
 	}
 
-	if (!(error = git_vector_insert(pq, item)))
+	if (!(error = git_vector_insert(pq, item)) && pq->_cmp)
 		pqueue_up(pq, pq->length - 1);
 
 	return error;
@@ -107,7 +107,8 @@ void *git_pqueue_pop(git_pqueue *pq)
 		/* move last item to top of heap, shrink, and push item down */
 		pq->contents[0] = git_vector_last(pq);
 		git_vector_pop(pq);
-		pqueue_down(pq, 0);
+		if (pq->_cmp)
+			pqueue_down(pq, 0);
 	} else {
 		/* all we need to do is shrink the heap in this case */
 		git_vector_pop(pq);
