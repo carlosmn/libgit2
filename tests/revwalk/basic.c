@@ -521,3 +521,34 @@ void test_revwalk_basic__old_hidden_commit_two(void)
 
    cl_git_fail_with(GIT_ITEROVER, git_revwalk_next(&oid, _walk));
 }
+
+void test_revwalk_basic__gechodev(void)
+{
+	git_oid base_id, head_id, id;
+	git_annotated_commit *base, *head;
+	git_rebase *rebase;
+	git_rebase_options opts = GIT_REBASE_OPTIONS_INIT;
+	git_revwalk *walk;
+	int error;
+
+	//cl_skip();
+
+	cl_git_pass(git_repository_open(&_repo, "/tmp/gecko-dev"));
+	cl_git_pass(git_revwalk_new(&_walk, _repo));
+
+	cl_git_pass(git_oid_fromstr(&base_id, "0dd403224a5acb0702bdbf7ff405067f5d29c239"));
+	cl_git_pass(git_oid_fromstr(&head_id, "b7083959a30f2137d8a6e27a8489f8729873950c"));
+
+	cl_git_pass(git_revwalk_new(&walk, _repo));
+	//git_revwalk_sorting(walk, GIT_SORT_TOPOLOGICAL | GIT_SORT_TIME);
+	git_revwalk_sorting(walk, GIT_SORT_TOPOLOGICAL);
+	//git_revwalk_sorting(walk, GIT_SORT_TIME);
+	cl_git_pass(git_revwalk_push(walk, &base_id));
+	cl_git_pass(git_revwalk_hide(walk, &head_id));
+
+	while ((error = git_revwalk_next(&id, walk)) == 0) {
+		printf("%s\n", git_oid_tostr_s(&id));
+	}
+	cl_assert_equal_i(GIT_ITEROVER, error);
+
+}
