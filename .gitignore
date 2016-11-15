@@ -31,3 +31,4 @@ msvc/Release/
 .*.swp
 tags
 mkmf.log
+/target/

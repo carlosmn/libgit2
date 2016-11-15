@@ -1,0 +1,9 @@
+[package]
+name = "libgit2-rust-core"
+version = "0.1.0"
+authors = ["cmn@dwim.me"]
+
+[lib]
+name ="git2core"
+path = "src/lib.rs"
+crate-type = ["staticlib"]

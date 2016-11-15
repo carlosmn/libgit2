@@ -194,6 +194,34 @@ FUNCTION(IDE_SPLIT_SOURCES target)
 	ENDIF()
 ENDFUNCTION()
 
+FUNCTION(BUILD_CARGO)
+  # We build it every time so we get the list of libraries to link
+  EXECUTE_PROCESS(COMMAND cargo clean WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} OUTPUT_VARIABLE CARGO_STDOUT ERROR_VARIABLE CARGO_STDERR RESULT_VARIABLE CARGO_RESULT)
+  IF(NOT "${CARGO_RESULT}" EQUAL "0")
+    MESSAGE("Error running cargo clean")
+    MESSAGE("${CARGO_STDERR}")
+  ENDIF()
+
+  EXECUTE_PROCESS(COMMAND cargo build WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} OUTPUT_VARIABLE CARGO_STDOUT ERROR_VARIABLE CARGO_STDERR RESULT_VARIABLE CARGO_RESULT)
+  IF(NOT "${CARGO_RESULT}" EQUAL "0")
+    MESSAGE("Error running cargo build")
+    MESSAGE("${CARGO_STDERR}")
+  ENDIF()
+
+  # Cargo gives us the list of libraries to link to via stderr with a prefix of
+  # "note: library: " separated by newlines. CMake on the other hand wants us to
+  # use a list in FOREACH so we need to replace the line feeds with semicolons
+  # so it knows what to do with the string.
+  STRING(REPLACE "\n" ";" CARGO_INFO "${CARGO_STDERR}")
+  FOREACH(CARGO_LINE ${CARGO_INFO})
+    IF("${CARGO_LINE}" MATCHES "^note: library: .*")
+      STRING(REGEX REPLACE "^note: library: (.*)"  "\\1" CARGO_DEP "${CARGO_LINE}")
+      LIST(APPEND CARGO_DEPS "${CARGO_DEP}")
+    ENDIF()
+  ENDFOREACH()
+  SET(CARGO_DEPS ${CARGO_DEPS} PARENT_SCOPE)
+ENDFUNCTION()
+
 FILE(STRINGS "include/git2/version.h" GIT2_HEADER REGEX "^#define LIBGIT2_VERSION \"[^\"]*\"$")
 
 STRING(REGEX REPLACE "^.*LIBGIT2_VERSION \"([0-9]+).*$" "\\1" LIBGIT2_VERSION_MAJOR "${GIT2_HEADER}")
@@ -602,6 +630,12 @@ ELSE()
 ENDIF()
 
 # Compile and link libgit2
+
+# Start by building the rust static library. It sets CARGO_DEPS with the list of
+# dependencies the Rust code needs.
+BUILD_CARGO()
+MESSAGE("-- Rust dependencies: ${CARGO_DEPS}")
+
 ADD_LIBRARY(git2 ${SRC_H} ${SRC_GIT2} ${SRC_OS} ${SRC_ZLIB} ${SRC_HTTP} ${SRC_REGEX} ${SRC_SSH} ${SRC_SHA1} ${WIN_RC})
 TARGET_LINK_LIBRARIES(git2 ${SECURITY_DIRS})
 TARGET_LINK_LIBRARIES(git2 ${COREFOUNDATION_DIRS})
@@ -609,6 +643,8 @@ TARGET_LINK_LIBRARIES(git2 ${SSL_LIBRARIES})
 TARGET_LINK_LIBRARIES(git2 ${SSH_LIBRARIES})
 TARGET_LINK_LIBRARIES(git2 ${GSSAPI_LIBRARIES})
 TARGET_LINK_LIBRARIES(git2 ${ICONV_LIBRARIES})
+TARGET_LINK_LIBRARIES(git2 "${CMAKE_CURRENT_SOURCE_DIR}/target/debug/libgit2core.a")
+TARGET_LINK_LIBRARIES(git2 ${CARGO_DEPS})
 TARGET_OS_LIBRARIES(git2)
 
 # Workaround for Cmake bug #0011240 (see http://public.kitware.com/Bug/view.php?id=11240)
@@ -687,6 +723,8 @@ IF (BUILD_CLAR)
 	TARGET_LINK_LIBRARIES(libgit2_clar ${SSH_LIBRARIES})
 	TARGET_LINK_LIBRARIES(libgit2_clar ${GSSAPI_LIBRARIES})
 	TARGET_LINK_LIBRARIES(libgit2_clar ${ICONV_LIBRARIES})
+	TARGET_LINK_LIBRARIES(libgit2_clar "${CMAKE_CURRENT_SOURCE_DIR}/target/debug/libgit2core.a")
+	TARGET_LINK_LIBRARIES(libgit2_clar ${CARGO_DEPS})
 	TARGET_OS_LIBRARIES(libgit2_clar)
 	IDE_SPLIT_SOURCES(libgit2_clar)
 

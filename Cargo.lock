@@ -1,0 +1,4 @@
+[root]
+name = "libgit2-rust-core"
+version = "0.1.0"
+
