@@ -9,5 +9,10 @@ path = "src/lib.rs"
 crate-type = ["staticlib"]
 
 [dependencies]
-httparse = "1.2.0"
 url = "1.2.3"
+lazy_static = "0.2"
+
+[dependencies.hyper]
+version = "0.9"
+# Don't try to build with OpenSSL, we'll handle it ourselves
+default-features = false

@@ -633,6 +633,7 @@ ENDIF()
 
 # Start by building the rust static library. It sets CARGO_DEPS with the list of
 # dependencies the Rust code needs.
+MESSAGE("-- Building the Rust bits")
 BUILD_CARGO()
 MESSAGE("-- Rust dependencies: ${CARGO_DEPS}")
 

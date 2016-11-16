@@ -6,6 +6,9 @@
  */
 
 extern crate url;
+extern crate hyper;
+#[macro_use]
+extern crate lazy_static;
 
 pub mod stream;
 pub mod transports;

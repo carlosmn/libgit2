@@ -66,6 +66,12 @@ impl SocketStream {
     }
 }
 
+impl io::Read for SocketStream {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.read(buf)
+    }
+}
+
 
 // And here comes the code to make it accessible for C
 
