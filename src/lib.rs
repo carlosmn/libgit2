@@ -5,5 +5,8 @@
  * a Linking Exception. For full terms see the included COPYING file.
  */
 
+extern crate url;
+
 pub mod stream;
+pub mod transports;
 mod error;

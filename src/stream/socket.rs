@@ -10,7 +10,6 @@ use std::net::{TcpStream};
 use std::{io,mem,slice};
 use std::ffi::CStr;
 use std::os::raw::{c_char};
-use std::num::ParseIntError;
 
 use stream::GitStream;
 use super::super::error::{GitError, set_error};
@@ -24,10 +23,8 @@ pub struct SocketStream {
 }
 
 impl SocketStream {
-    pub fn new(host: &str, port: &str) -> Result<Box<Self>, ParseIntError> {
-        let portn = try!(port.parse());
-
-        Ok(Box::new(SocketStream{
+    pub fn new(host: &str, port: u16) -> Box<Self> {
+        Box::new(SocketStream{
             parent: GitStream {
                 version: 1,
                 encrypted: 0,
@@ -42,8 +39,8 @@ impl SocketStream {
             },
             stream: None,
             host: host.into(),
-            port: portn,
-        }))
+            port: port,
+        })
     }
 
     pub fn connect(&mut self) -> io::Result<()> {
@@ -120,14 +117,15 @@ extern fn socket_free(st: *mut GitStream) {
 
 #[no_mangle]
 pub unsafe extern fn git_socket_stream_new(out: *mut *mut GitStream, host: *const c_char, port: *const c_char) -> i32 {
-    match SocketStream::new(CStr::from_ptr(host).to_str().unwrap(), CStr::from_ptr(port).to_str().unwrap()) {
-        Ok(stream) => {
-            *out =  mem::transmute(Box::into_raw(stream));
-            0
-        },
+    let portn = match CStr::from_ptr(port).to_str().unwrap().parse() {
+        Ok(n) => n,
         Err(e) => {
             set_error(GitError::Net, e);
-            -1
+            return -1;
         }
-    }
+    };
+
+    let stream = SocketStream::new(CStr::from_ptr(host).to_str().unwrap(), portn);
+    *out =  mem::transmute(Box::into_raw(stream));
+    0
 }

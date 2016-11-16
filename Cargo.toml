@@ -7,3 +7,7 @@ authors = ["cmn@dwim.me"]
 name ="git2core"
 path = "src/lib.rs"
 crate-type = ["staticlib"]
+
+[dependencies]
+httparse = "1.2.0"
+url = "1.2.3"
